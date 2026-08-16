@@ -71,4 +71,4 @@ cd android
 
 ## 许可
 
-Hub 依赖 [mijia-api](https://github.com/Do1e/mijia-api)（GPL-3.0）。自用没问题；若分发 Hub，需要同样以 GPL-3.0 开源。
+[GPL-3.0](LICENSE)。Hub 依赖 [mijia-api](https://github.com/Do1e/mijia-api)，同样是 GPL-3.0。

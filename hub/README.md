@@ -2,7 +2,7 @@
 
 电脑上的 Python 服务：对内调 [mijia-api](https://github.com/Do1e/mijia-api)、采集本机性能、按白名单启动本机程序；对外只提供 [Helm LAN Protocol v1](../docs/lan-protocol.md) 的 3 个 HTTP 接口。
 
-安卓不直连米家，也看不到 `did` / 可执行文件路径。依赖 GPL-3.0 的 mijia-api：自用没问题；若分发 Hub，需要同样开源。
+安卓不直连米家，也看不到 `did` / 可执行文件路径。整个项目以 [GPL-3.0](../LICENSE) 开源；Hub 依赖的 [mijia-api](https://github.com/Do1e/mijia-api) 也是 GPL-3.0。
 
 ## 目录结构
 
