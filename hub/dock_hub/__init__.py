@@ -1,4 +1,4 @@
-"""Dock Hub: LAN HTTP front for mijia-api and local program launch."""
+"""Helm Hub: LAN HTTP front for mijia-api and local program launch."""
 
 __version__ = "0.1.0"
 PROTOCOL = 1

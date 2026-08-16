@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run(argv: list[str] | None) -> int:
-    parser = argparse.ArgumentParser(prog="dock-hub", description="Dock LAN Protocol v1 Hub")
+    parser = argparse.ArgumentParser(prog="dock-hub", description="Helm LAN Protocol v1 Hub")
     parser.add_argument("--config", type=Path, help="hub.yaml 路径")
     parser.add_argument("--init", action="store_true", help="生成一份带随机 token 的配置")
     parser.add_argument("--list-devices", action="store_true", help="列出米家设备名")

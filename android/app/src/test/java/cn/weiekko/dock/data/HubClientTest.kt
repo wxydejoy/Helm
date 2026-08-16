@@ -33,7 +33,7 @@ class HubClientTest {
     }
 
     @Test
-    fun healthAcceptsDockHub() {
+    fun healthAcceptsHelmHub() {
         server.enqueue(
             MockResponse().setBody(
                 """{"ok":true,"service":"dock-hub","protocol":1,"name":"study"}""",

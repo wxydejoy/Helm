@@ -1,6 +1,6 @@
-# Dock LAN Protocol v1
+# Helm LAN Protocol v1
 
-安卓摆件 App 与电脑上 Python Hub 的局域网通信契约。
+Helm 安卓客户端与电脑上 Python Hub 的局域网通信契约。
 
 - **安卓**：只实现本文档的客户端。不直连米家，不理解 `did` / `siid` / `piid`，也不知道电脑上要跑哪条命令；电脑性能数字只读 snapshot 里的 `pc`。
 - **Hub**（另一名 agent 编写）：在 Mac / Windows 上跑一个简单 Python 脚本，对内调 [mijia-api](https://github.com/Do1e/mijia-api)、采集本机性能、按白名单启动本机程序，对外只暴露本文档的 3 个 HTTP 接口。
@@ -42,7 +42,7 @@ Hub 用配置文件**白名单**暴露米家设备和可启动的程序。没写
 Hub 必须在启动时打印本机局域网 IP 和端口，方便在安卓里填写，例如：
 
 ```
-Dock Hub v1  http://192.168.1.12:17890
+Helm v1  http://192.168.1.12:17890
 ```
 
 ### 2.1 鉴权
@@ -92,7 +92,7 @@ Hub 可选注册 mDNS，方便以后自动发现：
 | 端口 | `17890` |
 | TXT | `proto=1`（**禁止**把 token 放进 TXT） |
 
-安卓 v1 可以不实现 mDNS。`GET /health` 用来验证地址是不是 Dock Hub。
+安卓 v1 可以不实现 mDNS。`GET /health` 用来验证地址是不是 Helm Hub。
 
 ---
 
@@ -224,7 +224,7 @@ Hub 可选注册 mDNS，方便以后自动发现：
 
 ### 6.1 `GET /health`
 
-无鉴权。用来探测「这台机器是不是 Dock Hub」。
+无鉴权。用来探测「这台机器是不是 Helm Hub」。
 
 **200**
 
@@ -244,7 +244,7 @@ Hub 可选注册 mDNS，方便以后自动发现：
 | `protocol` | 固定 `1` |
 | `name` | Hub 配置里的房间/电脑名，给安卓设置页展示 |
 
-非 Dock 服务不会返回这个形状。安卓连上后应检查 `service == "dock-hub"` 且 `protocol >= 1`。
+非 Helm 服务不会返回这个形状。安卓连上后应检查 `service == "dock-hub"` 且 `protocol >= 1`。
 
 ---
 

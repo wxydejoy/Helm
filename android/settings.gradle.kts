@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Dock"
+rootProject.name = "Helm"
 include(":app")

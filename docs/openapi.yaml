@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Dock LAN Protocol
+  title: Helm LAN Protocol
   version: "1"
   description: >
     Android desk gadget ↔ Python Hub on the local network.
@@ -22,7 +22,7 @@ paths:
       security: []
       responses:
         "200":
-          description: This process is a Dock Hub
+          description: This process is a Helm Hub
           content:
             application/json:
               schema:

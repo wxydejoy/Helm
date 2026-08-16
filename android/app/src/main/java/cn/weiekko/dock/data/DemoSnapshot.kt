@@ -37,7 +37,7 @@ object DemoSnapshot {
 
     fun create(): Snapshot = Snapshot(
         protocol = 1,
-        hub = HubStatus(name = "Dock", mijia = "ok"),
+        hub = HubStatus(name = "Helm", mijia = "ok"),
         temperature = Temperature(
             id = "desk",
             name = "室内",

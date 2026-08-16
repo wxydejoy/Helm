@@ -1,4 +1,4 @@
-# Dock
+# Helm
 
 横屏常亮的安卓工位屏。一块旧手机横过来当台钟：看时间、看电脑占用、看室内外温度；点 logo 在电脑上打开白名单程序，点开关控制米家灯和插座，播放键管手机自己正在播的歌。
 
@@ -7,10 +7,10 @@
 ![主屏](docs/home.png)
 
 ```
-手机 Dock App  ── LAN HTTP :17890 ──►  Windows Hub
-                                      ├─ 米家（mijia-api）
-                                      ├─ 本机启动白名单
-                                      └─ CPU / 内存 / GPU
+手机 Helm  ── LAN HTTP :17890 ──►  Windows Hub
+                                  ├─ 米家（mijia-api）
+                                  ├─ 本机启动白名单
+                                  └─ CPU / 内存 / GPU
 ```
 
 默认 `http://<电脑局域网IP>:17890`，共享 Bearer token。

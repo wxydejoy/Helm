@@ -24,7 +24,7 @@ class HubClient(
         val body = execute(request, readTimeoutMs = SNAPSHOT_TIMEOUT_MS, expectAuthError = false)
         val health = decode<Health>(body)
         if (health.service != "dock-hub") {
-            throw HubException("bad_request", "这不是 Dock Hub（service=${health.service}）")
+            throw HubException("bad_request", "这不是 Helm Hub（service=${health.service}）")
         }
         if (health.protocol < 1) {
             throw HubException("bad_request", "Hub 协议版本过低：${health.protocol}")

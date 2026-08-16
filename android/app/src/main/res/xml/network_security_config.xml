@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Dock LAN Protocol v1 is HTTP-only on the local network. -->
+    <!-- Helm LAN Protocol v1 is HTTP-only on the local network. -->
     <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

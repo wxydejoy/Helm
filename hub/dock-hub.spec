@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for Dock Hub (windowed + tray)."""
+"""PyInstaller spec for Helm Hub (windowed + tray)."""
 
 from __future__ import annotations
 

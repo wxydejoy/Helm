@@ -1,4 +1,4 @@
-"""PyInstaller entrypoint for Dock Hub."""
+"""PyInstaller entrypoint for Helm Hub."""
 
 from dock_hub.__main__ import main
 
