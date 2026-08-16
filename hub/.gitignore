@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+hub.yaml
+build/
+dist/
+*.spec.bak
+PresentMon*.exe
+tools/

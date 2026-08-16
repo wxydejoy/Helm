@@ -1,0 +1,343 @@
+openapi: 3.0.3
+info:
+  title: Dock LAN Protocol
+  version: "1"
+  description: >
+    Android desk gadget ↔ Python Hub on the local network.
+    Three endpoints. Xiaomi did/siid/piid never appear on the wire.
+    Action `icon` is a short name rendered by the Android app (Remix Icon).
+    Optional snapshot.pc carries host CPU / memory / GPU / FPS telemetry.
+    Optional snapshot.media is the system now-playing session; control it with
+    POST /v1/devices/media/command (reserved id, not a devices[] item).
+servers:
+  - url: http://{host}:17890
+    variables:
+      host:
+        default: 192.168.1.12
+paths:
+  /health:
+    get:
+      summary: Liveness probe, no auth
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: This process is a Dock Hub
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /v1/snapshot:
+    get:
+      summary: Full home-screen state
+      operationId: getSnapshot
+      responses:
+        "200":
+          description: Snapshot (including login_required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snapshot"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/devices/{id}/command:
+    post:
+      summary: Partial update of one allowlisted device, or run one action
+      operationId: postDeviceCommand
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: lamp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceCommand"
+            examples:
+              turnOnLight:
+                value:
+                  on: true
+                  brightness: 80
+              turnOff:
+                value:
+                  on: false
+              runAction:
+                summary: Tap a home-screen logo
+                value:
+                  run: true
+              mediaToggle:
+                summary: Play or pause the system media session
+                value:
+                  media: toggle
+      responses:
+        "200":
+          description: Device or action after the command
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "502":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+security:
+  - bearer: []
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  responses:
+    Error:
+      description: Error envelope
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+  schemas:
+    Health:
+      type: object
+      required: [ok, service, protocol, name]
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+        service:
+          type: string
+          enum: [dock-hub]
+        protocol:
+          type: integer
+          enum: [1]
+        name:
+          type: string
+    Snapshot:
+      type: object
+      required: [protocol, hub, temperature, devices]
+      properties:
+        protocol:
+          type: integer
+          enum: [1]
+        hub:
+          $ref: "#/components/schemas/HubStatus"
+        temperature:
+          allOf:
+            - $ref: "#/components/schemas/Temperature"
+          nullable: true
+        pc:
+          allOf:
+            - $ref: "#/components/schemas/PcStatus"
+          nullable: true
+          description: >
+            Host PC telemetry. null when disabled in hub.yaml.
+            Independent of mijia login.
+        media:
+          allOf:
+            - $ref: "#/components/schemas/MediaInfo"
+          nullable: true
+          description: >
+            System media session. null when disabled in hub.yaml.
+            Control via POST /v1/devices/media/command.
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/Device"
+    HubStatus:
+      type: object
+      required: [name, mijia, message]
+      properties:
+        name:
+          type: string
+        mijia:
+          type: string
+          enum: [ok, login_required, error]
+        message:
+          type: string
+          nullable: true
+    Temperature:
+      type: object
+      required: [id, name, celsius, updated_at, online]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        celsius:
+          type: number
+        humidity:
+          type: number
+          description: Omit key if the sensor has no humidity
+        updated_at:
+          type: string
+          format: date-time
+        online:
+          type: boolean
+    PcStatus:
+      type: object
+      required: [online, updated_at]
+      properties:
+        online:
+          type: boolean
+          description: Whether this sample was collected successfully
+        updated_at:
+          type: string
+          format: date-time
+        cpu:
+          $ref: "#/components/schemas/PcCpu"
+        memory:
+          $ref: "#/components/schemas/PcMemory"
+        gpu:
+          $ref: "#/components/schemas/PcGpu"
+          description: Omit entire object when no discrete GPU / unread
+        fps:
+          type: number
+          description: Current present/game FPS; omit key when unknown
+    PcCpu:
+      type: object
+      required: [percent]
+      properties:
+        percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        temp_celsius:
+          type: number
+          description: Omit when unread
+    PcMemory:
+      type: object
+      required: [percent]
+      properties:
+        percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        used_gb:
+          type: number
+        total_gb:
+          type: number
+    PcGpu:
+      type: object
+      properties:
+        name:
+          type: string
+          example: RTX 4070
+        percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        temp_celsius:
+          type: number
+        vram_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        vram_used_gb:
+          type: number
+        vram_total_gb:
+          type: number
+    MediaInfo:
+      type: object
+      required: [online, playing, updated_at]
+      properties:
+        online:
+          type: boolean
+        playing:
+          type: boolean
+        title:
+          type: string
+          description: Omit when unknown
+        artist:
+          type: string
+          description: Omit when unknown
+        app:
+          type: string
+          description: Short player name such as Music or Spotify
+        updated_at:
+          type: string
+          format: date-time
+    Device:
+      type: object
+      required: [id, name, type, online]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [switch, light, action]
+        online:
+          type: boolean
+        on:
+          type: boolean
+          description: switch and light only; omit for action
+        brightness:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: light only; omit for switch and action
+        icon:
+          type: string
+          description: >
+            action only; short logo key. Android renders via Remix Icon.
+            Known keys: steam, chrome, vscode/code, cursor,
+            terminal/cmd/shell, folder, music, computer/pc/desktop.
+          example: steam
+        last_run_at:
+          type: string
+          format: date-time
+          description: action only; last successful spawn, UTC
+    DeviceCommand:
+      type: object
+      minProperties: 1
+      properties:
+        on:
+          type: boolean
+        brightness:
+          type: integer
+          minimum: 1
+          maximum: 100
+        run:
+          type: boolean
+          enum: [true]
+          description: action only; Android must send exactly {"run": true}
+        media:
+          type: string
+          enum: [toggle, next, previous]
+          description: >
+            Reserved device id "media" only. Android sends exactly
+            {"media":"toggle"|"next"|"previous"}. Response is MediaInfo,
+            not a Device.
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - unauthorized
+                - bad_request
+                - unsupported
+                - not_found
+                - offline
+                - login_required
+                - mijia_error
+                - action_error
+                - media_error
+            message:
+              type: string

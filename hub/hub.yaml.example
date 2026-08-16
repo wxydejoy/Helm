@@ -1,0 +1,51 @@
+# 复制为同目录 hub.yaml，或 ~/.config/dock-hub/hub.yaml
+# 先运行：uv run dock-hub --init
+# 再用：uv run dock-hub --list-devices 核对米家设备名和属性名
+
+name: study
+host: 0.0.0.0
+port: 17890
+token: "replace-with-a-long-random-string"
+
+# 电脑监控（只读）。整段删掉或 enabled: false → snapshot.pc = null
+pc:
+  enabled: true
+  sample_ms: 1000
+  cpu_temp: true
+  gpu: true
+
+# 主屏那一个温度源（只允许一个；不要就整段删掉）
+temperature:
+  id: desk
+  name: 书桌
+  mijia_name: 温湿度计          # 与米家 App 里的设备名称完全一致
+  celsius_prop: temperature     # 用 --dump-device 核对
+  humidity_prop: humidity       # 卧室温湿度计实际是 relative-humidity；Hub 会自动认 humidity
+
+# 主屏控件，顺序 = 安卓显示顺序
+devices:
+  - id: lamp
+    name: 台灯
+    type: light                 # light | switch | action
+    mijia_name: 书桌台灯
+    on_prop: "on"
+    brightness_prop: brightness # 仅 light；没有就删掉，只显示开关
+
+  - id: monitor-plug
+    name: 显示器
+    type: switch
+    mijia_name: 显示器插座
+    on_prop: "on"
+
+  # action：点 logo 在本机启动。program 只留在电脑上，不会发给手机
+  - id: steam
+    name: Steam
+    type: action
+    # 可选短名；安卓用 Remix Icon 渲染。认识：steam chrome vscode/code cursor
+    # terminal/cmd/shell folder music computer/pc/desktop；不认识则画名称首字
+    icon: steam
+    run:
+      program: "C:\\Program Files (x86)\\Steam\\steam.exe"
+      args: []
+      cwd: "C:\\Program Files (x86)\\Steam"
+      wait: false
