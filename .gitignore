@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+hub/hub.yaml
+hub/build/
+hub/dist/
+hub/.pytest_cache/
+DockHub.exe
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+.idea/
+.DS_Store

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Helm</string>
+    <string name="device_admin_desc">仅用于拔掉充电时立刻熄屏，不会改密码或清除数据。</string>
+</resources>

@@ -1,0 +1,651 @@
+package cn.weiekko.dock.ui
+
+import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import cn.weiekko.dock.data.DockFont
+import cn.weiekko.dock.data.HubConnection
+import cn.weiekko.dock.data.TileLook
+import cn.weiekko.dock.data.TileStyle
+import cn.weiekko.dock.data.TypeLook
+import cn.weiekko.dock.power.DockPower
+import kotlin.math.roundToInt
+
+@Composable
+fun SettingsScreen(
+    state: DockUiState,
+    canGoBack: Boolean,
+    onTest: (host: String, port: String, token: String) -> Unit,
+    onSave: (host: String, port: String, token: String) -> Unit,
+    onSetVideo: (Uri?) -> Unit,
+    onSetTileLook: (TileLook) -> Unit,
+    onSetTypeLook: (TypeLook) -> Unit,
+    onSetPowerScreen: (Boolean) -> Unit,
+    onBack: () -> Unit,
+) {
+    var host by rememberSaveable { mutableStateOf(state.connection.host) }
+    var port by rememberSaveable {
+        mutableStateOf(state.connection.port.toString())
+    }
+    var token by rememberSaveable { mutableStateOf(state.connection.token) }
+    val context = LocalContext.current
+    var adminGranted by remember { mutableStateOf(DockPower.isAdmin(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                adminGranted = DockPower.isAdmin(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val requestAdmin = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        adminGranted = DockPower.isAdmin(context)
+    }
+    val pickVideo = rememberLauncherForActivityResult(
+        object : ActivityResultContracts.OpenDocument() {
+            override fun createIntent(
+                context: android.content.Context,
+                input: Array<String>,
+            ): Intent {
+                return super.createIntent(context, input).addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+                )
+            }
+        },
+    ) { uri ->
+        uri?.let(onSetVideo)
+    }
+    val videoName = remember(state.backgroundVideoUri) {
+        state.backgroundVideoUri?.let { displayName(context, Uri.parse(it)) }
+    }
+    val colors = MaterialTheme.colorScheme
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = colors.primary,
+        unfocusedBorderColor = colors.outline,
+        focusedLabelColor = colors.primary,
+        cursorColor = colors.primary,
+    )
+
+    LaunchedEffect(state.connection) {
+        if (host.isEmpty()) host = state.connection.host
+        if (token.isEmpty()) token = state.connection.token
+        if (port == HubConnection.DEFAULT_PORT.toString() && state.connection.port != HubConnection.DEFAULT_PORT) {
+            port = state.connection.port.toString()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.background)
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.Top,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (canGoBack) {
+                IconButton(onClick = {
+                    onSave(host, port, token)
+                    onBack()
+                }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                        contentDescription = "返回主屏",
+                        tint = colors.onSurfaceVariant,
+                    )
+                }
+            }
+            Text(
+                "设置",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "电脑上的 Python 脚本启动后会打印地址。现在可以先返回主屏看界面。",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+        Spacer(Modifier.height(24.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = colors.surface,
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                OutlinedTextField(
+                    value = host,
+                    onValueChange = { host = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("地址") },
+                    placeholder = { Text("192.168.1.12") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                    colors = fieldColors,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                )
+                Spacer(Modifier.height(14.dp))
+                OutlinedTextField(
+                    value = port,
+                    onValueChange = { port = it.filter { ch -> ch.isDigit() }.take(5) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("端口") },
+                    placeholder = { Text("17890") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                    colors = fieldColors,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                Spacer(Modifier.height(14.dp))
+                OutlinedTextField(
+                    value = token,
+                    onValueChange = { token = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Token") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                    colors = fieldColors,
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Button(
+            onClick = { onTest(host, port, token) },
+            enabled = !state.testing,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            shape = MaterialTheme.shapes.medium,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = colors.primary,
+                contentColor = colors.onPrimary,
+                disabledContainerColor = colors.primary.copy(alpha = 0.4f),
+                disabledContentColor = colors.onPrimary,
+            ),
+        ) {
+            if (state.testing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.onPrimary,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text("正在连接…")
+            } else {
+                Text("测试连接")
+            }
+        }
+        state.settingsStatus?.let { status ->
+            Spacer(Modifier.height(16.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = if (state.settingsOk) colors.primary.copy(alpha = 0.12f) else colors.errorContainer,
+                shape = MaterialTheme.shapes.medium,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = if (state.settingsOk) {
+                            Icons.Outlined.CheckCircle
+                        } else {
+                            Icons.Outlined.ErrorOutline
+                        },
+                        contentDescription = null,
+                        tint = if (state.settingsOk) colors.secondary else colors.error,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        status,
+                        color = if (state.settingsOk) colors.secondary else colors.onErrorContainer,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = colors.surface,
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Text(
+                    "视频背景",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    videoName ?: "未设置，主屏为纯色。循环静音播放，选横屏视频效果更好。",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = { pickVideo.launch(arrayOf("video/*")) },
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colors.primary,
+                            contentColor = colors.onPrimary,
+                        ),
+                    ) {
+                        Text(if (videoName == null) "选择视频" else "更换视频")
+                    }
+                    OutlinedButton(
+                        onClick = { onSetVideo(null) },
+                        enabled = videoName != null,
+                        modifier = Modifier.height(48.dp),
+                        shape = MaterialTheme.shapes.medium,
+                    ) {
+                        Text("清除")
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = colors.surface,
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Text(
+                    "方块样式",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "主屏左右按钮、监控条和底部芯片都会跟着变。拖动即可预览。",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    TileStyle.entries.forEach { style ->
+                        val selected = state.tileLook.style == style
+                        FilterChip(
+                            selected = selected,
+                            onClick = { onSetTileLook(state.tileLook.copy(style = style)) },
+                            label = { Text(style.label) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colors.primary.copy(alpha = 0.28f),
+                                selectedLabelColor = colors.onBackground,
+                                containerColor = colors.surfaceVariant,
+                                labelColor = colors.onSurfaceVariant,
+                            ),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(MaterialTheme.shapes.medium)
+                        .background(Color(0xFF12161C))
+                        .padding(12.dp),
+                ) {
+                    CompositionLocalProvider(LocalTileLook provides state.tileLook) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            TilePanel(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(56.dp),
+                            ) {
+                                Text(
+                                    "Chrome",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier
+                                        .align(Alignment.CenterStart)
+                                        .padding(horizontal = 14.dp),
+                                )
+                            }
+                            TilePanel(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(56.dp),
+                                highlighted = true,
+                            ) {
+                                Text(
+                                    "台灯  开",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier
+                                        .align(Alignment.CenterStart)
+                                        .padding(horizontal = 14.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("透明度", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "${100 - state.tileLook.opacityPercent}%",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onBackground,
+                    )
+                }
+                Slider(
+                    value = (100 - state.tileLook.opacityPercent).toFloat(),
+                    onValueChange = { value ->
+                        onSetTileLook(
+                            state.tileLook.copy(opacityPercent = 100 - value.roundToInt()),
+                        )
+                    },
+                    valueRange = TileLook.OPACITY_MIN.toFloat()..TileLook.OPACITY_MAX.toFloat(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = colors.primary,
+                        activeTrackColor = colors.primary,
+                        inactiveTrackColor = colors.outline,
+                    ),
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("圆角", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "${state.tileLook.cornerDp}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onBackground,
+                    )
+                }
+                Slider(
+                    value = state.tileLook.cornerDp.toFloat(),
+                    onValueChange = { value ->
+                        onSetTileLook(state.tileLook.copy(cornerDp = value.roundToInt()))
+                    },
+                    valueRange = TileLook.CORNER_MIN.toFloat()..TileLook.CORNER_MAX.toFloat(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = colors.primary,
+                        activeTrackColor = colors.primary,
+                        inactiveTrackColor = colors.outline,
+                    ),
+                )
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = colors.surface,
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Text("字体", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "系统字体和内置开源字体。中文在 Inter / Outfit / JetBrains Mono 上会回退到系统字形。",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DockFont.entries.forEach { font ->
+                        val selected = state.typeLook.font == font
+                        FilterChip(
+                            selected = selected,
+                            onClick = { onSetTypeLook(state.typeLook.copy(font = font)) },
+                            label = {
+                                Text(font.label, fontFamily = font.toFamily())
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colors.primary.copy(alpha = 0.28f),
+                                selectedLabelColor = colors.onBackground,
+                                containerColor = colors.surfaceVariant,
+                                labelColor = colors.onSurfaceVariant,
+                            ),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                CompositionLocalProvider(LocalTypeLook provides state.typeLook) {
+                    Text(
+                        "19:30  CPU 24%",
+                        color = colors.onBackground,
+                        fontFamily = state.typeLook.font.toFamily(),
+                        fontSize = state.typeLook.statsSize.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("时钟大小", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "${state.typeLook.clockScalePercent}%",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onBackground,
+                    )
+                }
+                Slider(
+                    value = state.typeLook.clockScalePercent.toFloat(),
+                    onValueChange = { value ->
+                        onSetTypeLook(state.typeLook.copy(clockScalePercent = value.roundToInt()))
+                    },
+                    valueRange = TypeLook.CLOCK_MIN.toFloat()..TypeLook.CLOCK_MAX.toFloat(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = colors.primary,
+                        activeTrackColor = colors.primary,
+                        inactiveTrackColor = colors.outline,
+                    ),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("监控字号", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "${state.typeLook.statsSize}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onBackground,
+                    )
+                }
+                Slider(
+                    value = state.typeLook.statsSize.toFloat(),
+                    onValueChange = { value ->
+                        onSetTypeLook(state.typeLook.copy(statsSize = value.roundToInt()))
+                    },
+                    valueRange = TypeLook.STATS_MIN.toFloat()..TypeLook.STATS_MAX.toFloat(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = colors.primary,
+                        activeTrackColor = colors.primary,
+                        inactiveTrackColor = colors.outline,
+                    ),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("按钮字号", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "${state.typeLook.tileSize}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onBackground,
+                    )
+                }
+                Slider(
+                    value = state.typeLook.tileSize.toFloat(),
+                    onValueChange = { value ->
+                        onSetTypeLook(state.typeLook.copy(tileSize = value.roundToInt()))
+                    },
+                    valueRange = TypeLook.TILE_MIN.toFloat()..TypeLook.TILE_MAX.toFloat(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = colors.primary,
+                        activeTrackColor = colors.primary,
+                        inactiveTrackColor = colors.outline,
+                    ),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("底部字号", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "${state.typeLook.chipSize}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onBackground,
+                    )
+                }
+                Slider(
+                    value = state.typeLook.chipSize.toFloat(),
+                    onValueChange = { value ->
+                        onSetTypeLook(state.typeLook.copy(chipSize = value.roundToInt()))
+                    },
+                    valueRange = TypeLook.CHIP_MIN.toFloat()..TypeLook.CHIP_MAX.toFloat(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = colors.primary,
+                        activeTrackColor = colors.primary,
+                        inactiveTrackColor = colors.outline,
+                    ),
+                )
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = colors.surface,
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("插电亮屏 / 拔电熄屏", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            if (state.powerScreen) {
+                                if (adminGranted) "已开。插电亮屏，拔电立刻熄屏。"
+                                else "已开。插电会亮屏；拔电熄屏需要先授权设备管理员。"
+                            } else {
+                                "已关。屏幕按系统超时处理。"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    Switch(
+                        checked = state.powerScreen,
+                        onCheckedChange = onSetPowerScreen,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = colors.onPrimary,
+                            checkedTrackColor = colors.primary,
+                        ),
+                    )
+                }
+                if (state.powerScreen && !adminGranted) {
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { requestAdmin.launch(DockPower.requestAdminIntent(context)) },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = MaterialTheme.shapes.medium,
+                    ) {
+                        Text("授权设备管理员（熄屏）")
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+private fun displayName(context: android.content.Context, uri: Uri): String? {
+    val resolver = context.contentResolver
+    resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (index >= 0 && cursor.moveToFirst()) {
+            return cursor.getString(index)?.takeIf { it.isNotBlank() }
+        }
+    }
+    return uri.lastPathSegment?.substringAfterLast('/')
+}

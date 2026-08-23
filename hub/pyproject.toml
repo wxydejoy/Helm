@@ -1,0 +1,38 @@
+[project]
+name = "dock-hub"
+version = "0.1.0"
+description = "Dock LAN Protocol v1 Hub for Windows (mijia-api + local launch)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-only" }
+dependencies = [
+    "mijiaAPI>=4.1.0",
+    "PyYAML>=6.0",
+    "psutil>=6.0",
+    "nvidia-ml-py>=12.0",
+    "hardwaremonitor>=1.2.1",
+    "pystray>=0.19.5",
+    "pillow>=12.3.0",
+    "certifi>=2024.0.0",
+]
+
+[project.scripts]
+dock-hub = "dock_hub.__main__:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["dock_hub*"]
+
+[tool.setuptools.package-data]
+dock_hub = ["assets/*"]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.22.1",
+]
+
+[tool.uv]
+package = true

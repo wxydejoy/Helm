@@ -1,0 +1,448 @@
+package cn.weiekko.dock.ui
+
+import android.app.Application
+import android.content.Intent
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import cn.weiekko.dock.data.DemoSnapshot
+import cn.weiekko.dock.data.DeviceType
+import cn.weiekko.dock.data.Health
+import cn.weiekko.dock.data.HubClient
+import cn.weiekko.dock.data.HubConnection
+import cn.weiekko.dock.data.HubDevice
+import cn.weiekko.dock.data.HubException
+import cn.weiekko.dock.data.HubNetworkException
+import cn.weiekko.dock.data.HubPreferences
+import cn.weiekko.dock.data.MediaInfo
+import cn.weiekko.dock.data.Snapshot
+import cn.weiekko.dock.data.WeatherInfo
+import cn.weiekko.dock.data.TileLook
+import cn.weiekko.dock.data.TypeLook
+import cn.weiekko.dock.data.WinApp
+import cn.weiekko.dock.data.deviceType
+import cn.weiekko.dock.data.isLoginRequired
+import cn.weiekko.dock.data.toWinApp
+import cn.weiekko.dock.media.PhoneMedia
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+
+data class DockUiState(
+    val prefsReady: Boolean = false,
+    val connection: HubConnection = HubConnection(),
+    val snapshot: Snapshot? = null,
+    val stale: Boolean = false,
+    val banner: String? = null,
+    val busyIds: Set<String> = emptySet(),
+    val settingsStatus: String? = null,
+    val settingsOk: Boolean = false,
+    val testing: Boolean = false,
+    val loading: Boolean = false,
+    val preview: Boolean = true,
+    val weather: WeatherInfo? = DemoSnapshot.weather,
+    val winApps: List<WinApp> = DemoSnapshot.winApps,
+    val selectedWinId: String? = null,
+    val media: MediaInfo = MediaInfo.phoneIdle(),
+    val backgroundVideoUri: String? = null,
+    val tileLook: TileLook = TileLook(),
+    val typeLook: TypeLook = TypeLook(),
+    val powerScreen: Boolean = true,
+) {
+    val configured: Boolean get() = connection.isConfigured
+}
+
+class DockViewModel(application: Application) : AndroidViewModel(application) {
+    private val prefs = HubPreferences(application)
+    private val client = HubClient()
+    private val phoneMedia = PhoneMedia(application)
+
+    private val _ui = MutableStateFlow(DockUiState())
+    val ui: StateFlow<DockUiState> = _ui.asStateFlow()
+
+    private val _goHome = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val goHome: SharedFlow<Unit> = _goHome.asSharedFlow()
+
+    private val _goSettings = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val goSettings: SharedFlow<Unit> = _goSettings.asSharedFlow()
+
+    private var pollJob: Job? = null
+    private var tileLookJob: Job? = null
+    private var typeLookJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            while (isActive) {
+                val local = phoneMedia.snapshot()
+                _ui.update { it.copy(media = local) }
+                delay(PHONE_MEDIA_MS)
+            }
+        }
+        viewModelScope.launch {
+            prefs.videoUri.collect { uri ->
+                _ui.update { it.copy(backgroundVideoUri = resolveVideoUri(uri)) }
+            }
+        }
+        viewModelScope.launch {
+            val look = prefs.tileLook.first()
+            _ui.update { it.copy(tileLook = look) }
+        }
+        viewModelScope.launch {
+            val look = prefs.typeLook.first()
+            _ui.update { it.copy(typeLook = look) }
+        }
+        viewModelScope.launch {
+            prefs.powerScreen.collect { enabled ->
+                _ui.update { it.copy(powerScreen = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            prefs.connection.collect { connection ->
+                if (connection.isConfigured) {
+                    _ui.update {
+                        it.copy(
+                            prefsReady = true,
+                            connection = connection,
+                            preview = false,
+                            // 真连接时不要沿用预览假数据
+                            snapshot = if (it.preview) null else it.snapshot,
+                            winApps = emptyList(),
+                            banner = null,
+                        )
+                    }
+                    restartPolling(connection)
+                } else {
+                    pollJob?.cancel()
+                    _ui.update {
+                        it.copy(
+                            prefsReady = true,
+                            connection = connection,
+                            preview = true,
+                            stale = false,
+                            banner = null,
+                            loading = false,
+                            snapshot = DemoSnapshot.create(),
+                            winApps = DemoSnapshot.winApps,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun saveDraft(host: String, portText: String, token: String) {
+        val port = portText.toIntOrNull() ?: HubConnection.DEFAULT_PORT
+        viewModelScope.launch {
+            prefs.save(HubConnection(host = host, port = port, token = token))
+        }
+    }
+
+    fun setTileLook(look: TileLook) {
+        val next = look.copy(
+            opacityPercent = look.opacityPercent.coerceIn(TileLook.OPACITY_MIN, TileLook.OPACITY_MAX),
+            cornerDp = look.cornerDp.coerceIn(TileLook.CORNER_MIN, TileLook.CORNER_MAX),
+        )
+        _ui.update { it.copy(tileLook = next) }
+        tileLookJob?.cancel()
+        tileLookJob = viewModelScope.launch {
+            delay(160)
+            prefs.saveTileLook(next)
+        }
+    }
+
+    fun setTypeLook(look: TypeLook) {
+        val next = look.copy(
+            clockScalePercent = look.clockScalePercent.coerceIn(TypeLook.CLOCK_MIN, TypeLook.CLOCK_MAX),
+            statsSize = look.statsSize.coerceIn(TypeLook.STATS_MIN, TypeLook.STATS_MAX),
+            tileSize = look.tileSize.coerceIn(TypeLook.TILE_MIN, TypeLook.TILE_MAX),
+            chipSize = look.chipSize.coerceIn(TypeLook.CHIP_MIN, TypeLook.CHIP_MAX),
+        )
+        _ui.update { it.copy(typeLook = next) }
+        typeLookJob?.cancel()
+        typeLookJob = viewModelScope.launch {
+            delay(160)
+            prefs.saveTypeLook(next)
+        }
+    }
+
+    fun setPowerScreen(enabled: Boolean) {
+        _ui.update { it.copy(powerScreen = enabled) }
+        viewModelScope.launch {
+            prefs.savePowerScreen(enabled)
+        }
+    }
+
+    fun setBackgroundVideo(uri: Uri?) {
+        val resolver = getApplication<Application>().contentResolver
+        viewModelScope.launch {
+            val previous = _ui.value.backgroundVideoUri
+            if (uri != null) {
+                runCatching {
+                    resolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
+                prefs.saveVideoUri(uri.toString())
+            } else {
+                if (!previous.isNullOrBlank() && previous.startsWith("content:")) {
+                    runCatching {
+                        resolver.releasePersistableUriPermission(
+                            Uri.parse(previous),
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                        )
+                    }
+                }
+                prefs.saveVideoUri(VIDEO_OFF)
+            }
+        }
+    }
+
+    fun testConnection(host: String, portText: String, token: String) {
+        val port = portText.toIntOrNull()
+        if (host.isBlank()) {
+            _ui.update { it.copy(settingsStatus = "请填写 Hub 地址", settingsOk = false) }
+            return
+        }
+        if (port == null || port !in 1..65535) {
+            _ui.update { it.copy(settingsStatus = "端口无效", settingsOk = false) }
+            return
+        }
+        if (token.isBlank()) {
+            _ui.update { it.copy(settingsStatus = "请填写 Token", settingsOk = false) }
+            return
+        }
+        val connection = HubConnection(host, port, token)
+        viewModelScope.launch {
+            _ui.update { it.copy(testing = true, settingsStatus = null) }
+            val result = withContext(Dispatchers.IO) {
+                runCatching { client.health(connection) }
+            }
+            result.fold(
+                onSuccess = { health: Health ->
+                    prefs.save(connection)
+                    _ui.update {
+                        it.copy(
+                            testing = false,
+                            settingsOk = true,
+                            settingsStatus = "已连接 ${health.name}（协议 v${health.protocol}）",
+                        )
+                    }
+                    _goHome.tryEmit(Unit)
+                },
+                onFailure = { error ->
+                    _ui.update {
+                        it.copy(
+                            testing = false,
+                            settingsOk = false,
+                            settingsStatus = error.userMessage(),
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun refreshNow() {
+        val connection = _ui.value.connection
+        if (!connection.isConfigured) return
+        viewModelScope.launch { pullSnapshot(connection, showLoading = _ui.value.snapshot == null) }
+    }
+
+    fun tapWinApp(app: WinApp) {
+        if (_ui.value.preview) {
+            _ui.update { it.copy(selectedWinId = if (it.selectedWinId == app.id) null else app.id) }
+            return
+        }
+        if (!app.online || app.id in _ui.value.busyIds) return
+        _ui.update { it.copy(selectedWinId = app.id) }
+        sendCommand(app.id) {
+            client.command(_ui.value.connection, app.id, run = true)
+        }
+    }
+
+    fun sendMedia(action: String) {
+        if (action !in MEDIA_ACTIONS) return
+        val before = _ui.value.media
+        phoneMedia.dispatch(action)
+        _ui.update {
+            it.copy(
+                media = when (action) {
+                    "toggle" -> before.copy(playing = !before.playing)
+                    else -> before.copy(playing = true)
+                },
+            )
+        }
+        viewModelScope.launch {
+            delay(400)
+            _ui.update { it.copy(media = phoneMedia.snapshot()) }
+        }
+    }
+
+    fun setPower(device: HubDevice, on: Boolean) {
+        if (device.deviceType() == DeviceType.Action) return
+        if (_ui.value.preview) {
+            patchDevice(device.id) { it.copy(on = on) }
+            return
+        }
+        sendCommand(device.id) { client.command(_ui.value.connection, device.id, on = on) }
+    }
+
+    fun setBrightness(device: HubDevice, brightness: Int) {
+        val value = brightness.coerceIn(1, 100)
+        if (_ui.value.preview) {
+            patchDevice(device.id) { it.copy(on = true, brightness = value) }
+            return
+        }
+        sendCommand(device.id) {
+            client.command(
+                _ui.value.connection,
+                device.id,
+                on = true,
+                brightness = value,
+            )
+        }
+    }
+
+    private fun patchDevice(deviceId: String, transform: (HubDevice) -> HubDevice) {
+        _ui.update { state ->
+            val snap = state.snapshot ?: return@update state
+            state.copy(
+                snapshot = snap.copy(
+                    devices = snap.devices.map { if (it.id == deviceId) transform(it) else it },
+                ),
+            )
+        }
+    }
+
+    private fun sendCommand(deviceId: String, block: () -> HubDevice) {
+        if (deviceId in _ui.value.busyIds) return
+        val connection = _ui.value.connection
+        if (!connection.isConfigured) return
+        viewModelScope.launch {
+            _ui.update { it.copy(busyIds = it.busyIds + deviceId, banner = null) }
+            val result = withContext(Dispatchers.IO) { runCatching(block) }
+            result.fold(
+                onSuccess = { updated ->
+                    _ui.update { state ->
+                        val snap = state.snapshot ?: return@update state.copy(busyIds = state.busyIds - deviceId)
+                        state.copy(
+                            busyIds = state.busyIds - deviceId,
+                            stale = false,
+                            snapshot = snap.copy(
+                                devices = snap.devices.map { if (it.id == updated.id) updated else it },
+                            ),
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    handleFailure(error)
+                    _ui.update { it.copy(busyIds = it.busyIds - deviceId) }
+                },
+            )
+        }
+    }
+
+    private fun restartPolling(connection: HubConnection) {
+        pollJob?.cancel()
+        if (!connection.isConfigured) {
+            _ui.update { it.copy(snapshot = null, stale = false, banner = null, loading = false) }
+            return
+        }
+        pollJob = viewModelScope.launch {
+            pullSnapshot(connection, showLoading = _ui.value.snapshot == null)
+            while (isActive) {
+                val hasLive = _ui.value.snapshot?.pc != null
+                delay(if (hasLive) POLL_PC_MS else POLL_MS)
+                pullSnapshot(connection, showLoading = false)
+            }
+        }
+    }
+
+    private suspend fun pullSnapshot(connection: HubConnection, showLoading: Boolean) {
+        if (showLoading) _ui.update { it.copy(loading = true) }
+        val result = withContext(Dispatchers.IO) {
+            runCatching { client.snapshot(connection) }
+        }
+        result.fold(
+            onSuccess = { snapshot ->
+                val banner = when {
+                    snapshot.hub.isLoginRequired() ->
+                        snapshot.hub.message ?: "请在电脑上扫码登录米家"
+                    snapshot.hub.mijia == "error" ->
+                        snapshot.hub.message ?: "米家调用失败"
+                    else -> null
+                }
+                val winApps = snapshot.devices
+                    .filter { it.deviceType() == DeviceType.Action }
+                    .map { it.toWinApp() }
+                _ui.update {
+                    it.copy(
+                        snapshot = snapshot,
+                        stale = false,
+                        banner = banner,
+                        loading = false,
+                        winApps = winApps.ifEmpty { if (it.preview) DemoSnapshot.winApps else emptyList() },
+                    )
+                }
+            },
+            onFailure = { error ->
+                handleFailure(error)
+                _ui.update { it.copy(loading = false, stale = it.snapshot != null) }
+            },
+        )
+    }
+
+    private fun handleFailure(error: Throwable) {
+        if (error is CancellationException) throw error
+        val unauthorized = error is HubException && error.isUnauthorized
+        val login = error is HubException && error.isLoginRequired
+        _ui.update {
+            it.copy(
+                banner = error.userMessage(),
+                stale = it.snapshot != null && !login,
+            )
+        }
+        if (unauthorized) {
+            _goSettings.tryEmit(Unit)
+        }
+    }
+
+    companion object {
+        const val POLL_MS = 20_000L
+        const val POLL_PC_MS = 3_000L
+        const val PHONE_MEDIA_MS = 1_000L
+        const val VIDEO_OFF = "off"
+        const val VIDEO_FILE_NAME = "1.mp4"
+        val MEDIA_ACTIONS = setOf("toggle", "next", "previous")
+    }
+
+    private fun resolveVideoUri(stored: String): String? {
+        if (stored == VIDEO_OFF) return null
+        if (stored.isNotBlank()) return stored
+        val file = File(
+            getApplication<Application>().getExternalFilesDir(null),
+            VIDEO_FILE_NAME,
+        )
+        return if (file.isFile && file.length() > 0L) Uri.fromFile(file).toString() else null
+    }
+}
+
+private fun Throwable.userMessage(): String = when (this) {
+    is HubException -> message
+    is HubNetworkException -> message
+    else -> message ?: "未知错误"
+}
