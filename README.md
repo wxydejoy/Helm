@@ -4,6 +4,8 @@
 
 ![Helm 主屏](docs/screenshots/home.png)
 
+![Helm 主屏演示](docs/home.gif)
+
 手机只通过局域网 HTTP 与 Hub 通信，不直连米家。协议是两边的唯一契约：
 
 - [docs/lan-protocol.md](docs/lan-protocol.md) — 说明、时序、验收
