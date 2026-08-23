@@ -2,9 +2,7 @@
 
 横屏安卓桌面摆件 + Windows Python Hub：显示天气与室内温湿度、电脑监控，控制米家设备，一键启动电脑上的白名单程序。
 
-![Helm 主屏](docs/screenshots/home.png)
-
-![Helm 主屏演示](docs/home.gif)
+![Helm 主屏](docs/screenshots/home.gif)
 
 手机只通过局域网 HTTP 与 Hub 通信，不直连米家。协议是两边的唯一契约：
 
