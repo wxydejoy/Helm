@@ -1,14 +1,17 @@
 package cn.weiekko.dock.ui
 
-import android.content.Intent
-import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,8 +23,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Lightbulb
@@ -29,11 +32,14 @@ import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material.icons.outlined.Thermostat
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,27 +47,40 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import cn.weiekko.dock.R
 import cn.weiekko.dock.data.DemoSnapshot
 import cn.weiekko.dock.data.DeviceType
+import cn.weiekko.dock.data.DockLayout
+import cn.weiekko.dock.data.DockModule
 import cn.weiekko.dock.data.HubDevice
 import cn.weiekko.dock.data.MediaInfo
+import cn.weiekko.dock.data.ModuleRect
 import cn.weiekko.dock.data.PcStatus
 import cn.weiekko.dock.data.WeatherInfo
 import cn.weiekko.dock.data.WinApp
+import cn.weiekko.dock.data.defaultDockLayout
 import cn.weiekko.dock.data.deviceType
 import kotlinx.coroutines.delay
 import java.time.LocalDateTime
@@ -82,9 +101,15 @@ fun HomeScreen(
     onPower: (HubDevice, Boolean) -> Unit,
     onWinClick: (WinApp) -> Unit,
     onMedia: (String) -> Unit,
+    onSelectModule: (DockModule?) -> Unit = {},
+    onMoveModule: (DockModule, Float, Float, Float, Float, Float, Float) -> Unit = { _, _, _, _, _, _, _ -> },
+    onResizeModule: (DockModule, Float, Float, Float, Float, Float, Float) -> Unit = { _, _, _, _, _, _, _ -> },
+    onHideModule: (DockModule, Float, Float, Float, Float) -> Unit = { _, _, _, _, _ -> },
+    onToggleModuleChrome: (DockModule, Float, Float, Float, Float) -> Unit = { _, _, _, _, _ -> },
+    onExitEdit: () -> Unit = {},
+    onResetLayout: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
-    val now = rememberNow()
     val indoor = state.snapshot?.temperature
     val devices = state.snapshot?.devices.orEmpty()
     val pc = state.snapshot?.pc
@@ -94,6 +119,8 @@ fun HomeScreen(
     } else {
         Shadow()
     }
+    val editing = state.editing
+    BackHandler(enabled = editing, onBack = onExitEdit)
 
     CompositionLocalProvider(
         LocalTileLook provides state.tileLook,
@@ -104,157 +131,544 @@ fun HomeScreen(
                 .fillMaxSize()
                 .background(if (videoUri == null) colors.background else Color.Transparent),
         ) {
-        if (videoUri != null) {
-            VideoBackground(uri = videoUri)
+            if (videoUri != null) {
+                VideoBackground(uri = videoUri)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.36f)),
+                )
+            }
+
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+            ) {
+                val type = state.typeLook
+                val family = type.font.toFamily()
+                val canvasW = maxWidth.value
+                val canvasH = maxHeight.value
+                val tileH = min(canvasH * 0.22f, 84f)
+                val tileW = min(canvasW * 0.20f, tileH * 1.7f)
+                val density = LocalDensity.current
+                val layout = remember(state.layout, canvasW, canvasH, tileW, tileH) {
+                    state.layout.mergedWith(defaultDockLayout(canvasW, canvasH, tileW, tileH))
+                }
+                val sideDevices = devices.filter {
+                    val kind = it.deviceType()
+                    kind == DeviceType.Light || kind == DeviceType.Switch
+                }.take(2)
+
+                val edit = EditCanvas(
+                    layout = layout,
+                    canvasW = canvasW,
+                    canvasH = canvasH,
+                    tileW = tileW,
+                    tileH = tileH,
+                    editing = editing,
+                    selected = state.selectedModule,
+                    density = density,
+                    onSelect = onSelectModule,
+                    onMove = onMoveModule,
+                    onResize = onResizeModule,
+                    onHide = onHideModule,
+                    onToggleChrome = onToggleModuleChrome,
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (editing) {
+                                Modifier.pointerInput(Unit) {
+                                    detectTapGestures { onSelectModule(null) }
+                                }
+                            } else {
+                                Modifier
+                            },
+                        ),
+                ) {
+                    PlaceModule(DockModule.Clock, edit) {
+                        val rect = layout.rect(DockModule.Clock)
+                        val frameW = (rect?.w ?: 0.44f) * canvasW
+                        val frameH = (rect?.h ?: 0.44f) * canvasH
+                        val timeSp = min(frameW * 0.50f, frameH * 0.68f) *
+                            (type.clockScalePercent / 100f)
+                        val now = rememberNow()
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .combinedClickable(
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    onClick = { if (editing) onSelectModule(DockModule.Clock) },
+                                    onLongClick = { onSelectModule(DockModule.Clock) },
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    now.format(TimeFmt),
+                                    fontSize = timeSp.sp,
+                                    fontFamily = family,
+                                    fontWeight = FontWeight.ExtraLight,
+                                    letterSpacing = (-6).sp,
+                                    color = colors.onBackground,
+                                    lineHeight = timeSp.sp,
+                                    maxLines = 1,
+                                    style = TextStyle(
+                                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                        shadow = timeShadow,
+                                    ),
+                                )
+                                Text(
+                                    now.format(DateFmt),
+                                    fontFamily = family,
+                                    fontSize = (type.chipSize + 1).sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White.copy(alpha = 0.86f),
+                                    maxLines = 1,
+                                    style = TextStyle(shadow = timeShadow),
+                                )
+                            }
+                        }
+                    }
+
+                    PlaceModule(DockModule.Pc, edit) {
+                        PcMonitorRow(
+                            pc = pc,
+                            stale = state.stale || pc?.online != true,
+                            interactive = !editing,
+                            onClick = onOpenSettings,
+                            onLongPress = { onSelectModule(DockModule.Pc) },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+
+                    val win0 = state.winApps.getOrNull(0)
+                    if (win0 != null) {
+                        PlaceModule(DockModule.Win0, edit) {
+                            WinTile(
+                                app = win0,
+                                selected = win0.id == state.selectedWinId,
+                                busy = win0.id in state.busyIds,
+                                interactive = !editing,
+                                onClick = { onWinClick(win0) },
+                                onLongPress = { onSelectModule(DockModule.Win0) },
+                            )
+                        }
+                    } else if (editing) {
+                        PlaceModule(DockModule.Win0, edit) { EmptySlot("启动 1") }
+                    }
+
+                    val win1 = state.winApps.getOrNull(1)
+                    if (win1 != null) {
+                        PlaceModule(DockModule.Win1, edit) {
+                            WinTile(
+                                app = win1,
+                                selected = win1.id == state.selectedWinId,
+                                busy = win1.id in state.busyIds,
+                                interactive = !editing,
+                                onClick = { onWinClick(win1) },
+                                onLongPress = { onSelectModule(DockModule.Win1) },
+                            )
+                        }
+                    } else if (editing) {
+                        PlaceModule(DockModule.Win1, edit) { EmptySlot("启动 2") }
+                    }
+
+                    val win2 = state.winApps.getOrNull(2)
+                    if (win2 != null) {
+                        PlaceModule(DockModule.Win2, edit) {
+                            WinTile(
+                                app = win2,
+                                selected = win2.id == state.selectedWinId,
+                                busy = win2.id in state.busyIds,
+                                interactive = !editing,
+                                onClick = { onWinClick(win2) },
+                                onLongPress = { onSelectModule(DockModule.Win2) },
+                            )
+                        }
+                    } else if (editing) {
+                        PlaceModule(DockModule.Win2, edit) { EmptySlot("启动 3") }
+                    }
+
+                    val device0 = sideDevices.getOrNull(0)
+                    if (device0 != null) {
+                        PlaceModule(DockModule.Device0, edit) {
+                            DeviceTile(
+                                device = device0,
+                                busy = device0.id in state.busyIds,
+                                interactive = !editing,
+                                onToggle = { onPower(device0, !device0.on) },
+                                onLongPress = { onSelectModule(DockModule.Device0) },
+                            )
+                        }
+                    } else if (editing) {
+                        PlaceModule(DockModule.Device0, edit) { EmptySlot("设备 1") }
+                    }
+
+                    val device1 = sideDevices.getOrNull(1)
+                    if (device1 != null) {
+                        PlaceModule(DockModule.Device1, edit) {
+                            DeviceTile(
+                                device = device1,
+                                busy = device1.id in state.busyIds,
+                                interactive = !editing,
+                                onToggle = { onPower(device1, !device1.on) },
+                                onLongPress = { onSelectModule(DockModule.Device1) },
+                            )
+                        }
+                    } else if (editing) {
+                        PlaceModule(DockModule.Device1, edit) { EmptySlot("设备 2") }
+                    }
+
+                    PlaceModule(DockModule.Media, edit) {
+                        MediaTile(
+                            media = state.media,
+                            interactive = !editing,
+                            onAction = onMedia,
+                            onLongPress = { onSelectModule(DockModule.Media) },
+                        )
+                    }
+
+                    val weather = state.weather
+                    if (weather != null) {
+                        PlaceModule(DockModule.Weather, edit) {
+                            WeatherChip(
+                                weather = weather,
+                                interactive = !editing,
+                                onLongPress = { onSelectModule(DockModule.Weather) },
+                            )
+                        }
+                    } else if (editing) {
+                        PlaceModule(DockModule.Weather, edit) { EmptySlot("室外天气") }
+                    }
+
+                    if (indoor != null) {
+                        PlaceModule(DockModule.Indoor, edit) {
+                            IndoorChip(
+                                celsius = indoor.celsius,
+                                humidity = indoor.humidity,
+                                name = indoor.name,
+                                online = indoor.online && !state.stale,
+                                interactive = !editing,
+                                onLongPress = { onSelectModule(DockModule.Indoor) },
+                            )
+                        }
+                    } else if (editing) {
+                        PlaceModule(DockModule.Indoor, edit) { EmptySlot("室内温湿度") }
+                    }
+                }
+
+                if (state.preview && !editing) {
+                    Text(
+                        "预览",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 14.dp, end = 4.dp),
+                    )
+                }
+
+                state.banner?.let { banner ->
+                    Text(
+                        banner,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = colors.error,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 8.dp)
+                            .padding(horizontal = 48.dp)
+                            .zIndex(8f),
+                    )
+                }
+
+                if (editing) {
+                    EditBar(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(top = 2.dp)
+                            .zIndex(12f),
+                        onDone = onExitEdit,
+                        onReset = onResetLayout,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private data class EditCanvas(
+    val layout: DockLayout,
+    val canvasW: Float,
+    val canvasH: Float,
+    val tileW: Float,
+    val tileH: Float,
+    val editing: Boolean,
+    val selected: DockModule?,
+    val density: Density,
+    val onSelect: (DockModule?) -> Unit,
+    val onMove: (DockModule, Float, Float, Float, Float, Float, Float) -> Unit,
+    val onResize: (DockModule, Float, Float, Float, Float, Float, Float) -> Unit,
+    val onHide: (DockModule, Float, Float, Float, Float) -> Unit,
+    val onToggleChrome: (DockModule, Float, Float, Float, Float) -> Unit,
+)
+
+@Composable
+private fun PlaceModule(
+    id: DockModule,
+    canvas: EditCanvas,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val rect = canvas.layout.rect(id) ?: return
+    val density = canvas.density
+    ModuleBox(
+        rect = rect,
+        canvasW = canvas.canvasW,
+        canvasH = canvas.canvasH,
+        editing = canvas.editing,
+        selected = canvas.selected == id,
+        onSelect = { canvas.onSelect(id) },
+        onMove = { dx, dy ->
+            canvas.onMove(
+                id,
+                with(density) { dx.toDp().value },
+                with(density) { dy.toDp().value },
+                canvas.canvasW,
+                canvas.canvasH,
+                canvas.tileW,
+                canvas.tileH,
+            )
+        },
+        onResize = { dw, dh ->
+            canvas.onResize(
+                id,
+                with(density) { dw.toDp().value },
+                with(density) { dh.toDp().value },
+                canvas.canvasW,
+                canvas.canvasH,
+                canvas.tileW,
+                canvas.tileH,
+            )
+        },
+        onHide = {
+            canvas.onHide(id, canvas.canvasW, canvas.canvasH, canvas.tileW, canvas.tileH)
+        },
+        onToggleChrome = {
+            canvas.onToggleChrome(id, canvas.canvasW, canvas.canvasH, canvas.tileW, canvas.tileH)
+        },
+        content = content,
+    )
+}
+
+@Composable
+private fun ModuleBox(
+    rect: ModuleRect,
+    canvasW: Float,
+    canvasH: Float,
+    editing: Boolean,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onMove: (Float, Float) -> Unit,
+    onResize: (Float, Float) -> Unit,
+    onHide: () -> Unit,
+    onToggleChrome: () -> Unit,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    if (!rect.visible && !editing) return
+    val density = LocalDensity.current
+    val shape = RoundedCornerShape(10.dp)
+    var dx by remember { mutableFloatStateOf(0f) }
+    var dy by remember { mutableFloatStateOf(0f) }
+    var dw by remember { mutableFloatStateOf(0f) }
+    var dh by remember { mutableFloatStateOf(0f) }
+    val extraW = with(density) { dw.toDp().value }
+    val extraH = with(density) { dh.toDp().value }
+
+    Box(
+        modifier = Modifier
+            .zIndex(if (selected && editing) 6f else 1f)
+            .offset {
+                IntOffset(
+                    x = ((rect.x * canvasW).dp.toPx() + dx).roundToInt(),
+                    y = ((rect.y * canvasH).dp.toPx() + dy).roundToInt(),
+                )
+            }
+            .width((rect.w * canvasW + extraW).coerceAtLeast(48f).dp)
+            .height((rect.h * canvasH + extraH).coerceAtLeast(40f).dp)
+            .alpha(if (rect.visible) 1f else 0.38f),
+    ) {
+        CompositionLocalProvider(LocalTileChrome provides rect.chrome) {
+            Box(modifier = Modifier.fillMaxSize(), content = content)
+        }
+        if (editing) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.36f)),
+                    .border(
+                        width = if (selected) 2.dp else 1.dp,
+                        color = if (selected) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.32f),
+                        shape = shape,
+                    )
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragStart = { onSelect() },
+                            onDragEnd = {
+                                val x = dx
+                                val y = dy
+                                if (x != 0f || y != 0f) {
+                                    onMove(x, y)
+                                    dx = 0f
+                                    dy = 0f
+                                }
+                            },
+                            onDragCancel = {
+                                val x = dx
+                                val y = dy
+                                if (x != 0f || y != 0f) {
+                                    onMove(x, y)
+                                    dx = 0f
+                                    dy = 0f
+                                }
+                            },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                dx += amount.x
+                                dy += amount.y
+                            },
+                        )
+                    },
             )
-        }
-
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-    ) {
-        val type = state.typeLook
-        val family = type.font.toFamily()
-        val tileGap = 10.dp
-        val tileH = min(maxHeight.value * 0.22f, 84f).dp
-        val tileW = min(maxWidth.value * 0.20f, tileH.value * 1.7f).dp
-        val timeSp = min(maxWidth.value * 0.22f, maxHeight.value * 0.36f) *
-            (type.clockScalePercent / 100f)
-        val timeLift = -(maxHeight * 0.04f)
-
-        if (state.preview) {
-            Text(
-                "预览",
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 14.dp, end = 4.dp),
-            )
-        }
-
-        state.banner?.let { banner ->
-            Text(
-                banner,
-                style = MaterialTheme.typography.labelMedium,
-                color = colors.error,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 8.dp)
-                    .padding(horizontal = 48.dp),
-            )
-        }
-
-        val sideDevices = devices
-            .filter { it.deviceType() == DeviceType.Light || it.deviceType() == DeviceType.Switch }
-            .take(2)
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .offset(y = timeLift * 0.25f),
-            verticalArrangement = Arrangement.spacedBy(tileGap),
-        ) {
-            state.winApps.take(3).forEach { app ->
-                WinTile(
-                    app = app,
-                    selected = app.id == state.selectedWinId,
-                    busy = app.id in state.busyIds,
-                    width = tileW,
-                    height = tileH,
-                    onClick = { onWinClick(app) },
-                )
+            if (selected) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    EditChip(
+                        label = if (rect.chrome) "去底" else "加底",
+                        onClick = onToggleChrome,
+                    )
+                    EditChip(label = "隐藏", onClick = onHide)
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(2.dp)
+                        .size(28.dp)
+                        .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragEnd = {
+                                    val x = dw
+                                    val y = dh
+                                    if (x != 0f || y != 0f) {
+                                        onResize(x, y)
+                                        dw = 0f
+                                        dh = 0f
+                                    }
+                                },
+                                onDragCancel = {
+                                    val x = dw
+                                    val y = dh
+                                    if (x != 0f || y != 0f) {
+                                        onResize(x, y)
+                                        dw = 0f
+                                        dh = 0f
+                                    }
+                                },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    dw += amount.x
+                                    dh += amount.y
+                                },
+                            )
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ri_expand),
+                        contentDescription = "缩放",
+                        tint = Color.White,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .rotate(90f),
+                    )
+                }
             }
-        }
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .offset(y = timeLift),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                now.format(TimeFmt),
-                fontSize = timeSp.sp,
-                fontFamily = family,
-                fontWeight = FontWeight.ExtraLight,
-                letterSpacing = (-6).sp,
-                color = colors.onBackground,
-                lineHeight = timeSp.sp,
-                style = androidx.compose.ui.text.TextStyle(
-                    platformStyle = androidx.compose.ui.text.PlatformTextStyle(
-                        includeFontPadding = false,
-                    ),
-                    shadow = timeShadow,
-                ),
-            )
-            Text(
-                now.format(DateFmt),
-                fontFamily = family,
-                fontSize = (type.chipSize + 1).sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.White.copy(alpha = 0.86f),
-                style = androidx.compose.ui.text.TextStyle(shadow = timeShadow),
-            )
-        }
-
-        PcMonitorRow(
-            pc = pc,
-            stale = state.stale || pc?.online != true,
-            onClick = onOpenSettings,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 2.dp),
-        )
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .offset(y = timeLift * 0.25f),
-            verticalArrangement = Arrangement.spacedBy(tileGap),
-        ) {
-            sideDevices.forEach { device ->
-                DeviceTile(
-                    device = device,
-                    busy = device.id in state.busyIds,
-                    width = tileW,
-                    height = tileH,
-                    onToggle = { onPower(device, !device.on) },
-                )
-            }
-            MediaTile(
-                media = state.media,
-                width = tileW,
-                height = tileH,
-                onAction = onMedia,
-            )
-        }
-
-        Row(
-            modifier = Modifier.align(Alignment.BottomCenter),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            state.weather?.let { weather ->
-                WeatherChip(weather = weather)
-            }
-            indoor?.let { temp ->
-                IndoorChip(
-                    celsius = temp.celsius,
-                    humidity = temp.humidity,
-                    name = temp.name,
-                    online = temp.online && !state.stale,
-                )
-            }
-        }
         }
     }
+}
+
+@Composable
+private fun EditBar(
+    modifier: Modifier = Modifier,
+    onDone: () -> Unit,
+    onReset: () -> Unit,
+) {
+    Surface(
+        modifier = modifier,
+        color = Color.Black.copy(alpha = 0.58f),
+        shape = RoundedCornerShape(14.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        ) {
+            TextButton(onClick = onDone) {
+                Text("完成", color = Color.White, fontWeight = FontWeight.SemiBold)
+            }
+            TextButton(onClick = onReset) {
+                Text("恢复默认", color = Color.White.copy(alpha = 0.88f))
+            }
+            Text(
+                "拖动移动 · 角点缩放 · 去底",
+                color = Color.White.copy(alpha = 0.62f),
+                fontSize = 11.sp,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun EditChip(
+    label: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.clickable(
+            indication = null,
+            interactionSource = remember { MutableInteractionSource() },
+            onClick = onClick,
+        ),
+        color = Color.Black.copy(alpha = 0.62f),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Text(
+            label,
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun EmptySlot(label: String) {
+    TilePanel(modifier = Modifier.fillMaxSize().alpha(0.55f)) {
+        Text(
+            label,
+            color = Color.White.copy(alpha = 0.78f),
+            modifier = Modifier.align(Alignment.Center),
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
@@ -270,40 +684,30 @@ private fun rememberNow(): LocalDateTime {
     return now
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PcMonitorRow(
     pc: PcStatus?,
     stale: Boolean,
     onClick: () -> Unit,
+    onLongPress: () -> Unit = {},
+    interactive: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     data class Item(val label: String, val value: String, val sub: String? = null)
     val items = buildList {
         val cpu = pc?.cpu
-        add(
-            Item(
-                label = "CPU",
-                value = cpu?.percent?.let(::formatPercent) ?: "--",
-                sub = cpu?.tempCelsius?.let(::formatTemp),
-            ),
-        )
-        add(
-            Item(
-                label = "MEM",
-                value = pc?.memory?.percent?.let(::formatPercent) ?: "--",
-            ),
-        )
+        add(Item("CPU", cpu?.percent?.let(::formatPercent) ?: "--", cpu?.tempCelsius?.let(::formatTemp)))
+        add(Item("MEM", pc?.memory?.percent?.let(::formatPercent) ?: "--"))
         val gpu = pc?.gpu
         add(
             Item(
-                label = "GPU",
-                value = gpu?.percent?.let(::formatPercent) ?: "--",
-                sub = gpu?.tempCelsius?.let(::formatTemp) ?: gpu?.name?.take(10),
+                "GPU",
+                gpu?.percent?.let(::formatPercent) ?: "--",
+                gpu?.tempCelsius?.let(::formatTemp) ?: gpu?.name?.take(10),
             ),
         )
-        pc?.fps?.let { fps ->
-            add(Item(label = "FPS", value = fps.roundToInt().toString()))
-        }
+        pc?.fps?.let { fps -> add(Item("FPS", fps.roundToInt().toString())) }
     }
     val type = LocalTypeLook.current
     val family = type.font.toFamily()
@@ -312,58 +716,61 @@ private fun PcMonitorRow(
     val colW = (size * 5.4f + 12f).dp
     TilePanel(
         modifier = modifier
-            .wrapContentWidth()
             .alpha(if (stale) 0.78f else 1f)
-            .clickable(
+            .combinedClickable(
+                enabled = interactive,
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
                 role = Role.Button,
                 onClick = onClick,
+                onLongClick = onLongPress,
             ),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            items.forEach { item ->
-                Column(
-                    modifier = Modifier.width(colW),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        item.label,
-                        color = Color.White.copy(alpha = 0.78f),
-                        fontFamily = family,
-                        fontSize = labelSize.sp,
-                        fontWeight = FontWeight.Medium,
-                        letterSpacing = 1.1.sp,
-                        maxLines = 1,
-                        style = androidx.compose.ui.text.TextStyle(shadow = StatShadow),
-                    )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ScaleToFit(Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                items.forEach { item ->
+                    Column(
+                        modifier = Modifier.width(colW),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(
-                            item.value,
-                            color = Color.White,
+                            item.label,
+                            color = Color.White.copy(alpha = 0.78f),
                             fontFamily = family,
-                            fontSize = size.sp,
+                            fontSize = labelSize.sp,
                             fontWeight = FontWeight.Medium,
+                            letterSpacing = 1.1.sp,
                             maxLines = 1,
-                            style = androidx.compose.ui.text.TextStyle(shadow = StatShadow),
+                            style = TextStyle(shadow = StatShadow),
                         )
-                        item.sub?.let { sub ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
                             Text(
-                                sub,
-                                color = Color.White.copy(alpha = 0.88f),
+                                item.value,
+                                color = Color.White,
                                 fontFamily = family,
                                 fontSize = size.sp,
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
-                                style = androidx.compose.ui.text.TextStyle(shadow = StatShadow),
+                                style = TextStyle(shadow = StatShadow),
                             )
+                            item.sub?.let { sub ->
+                                Text(
+                                    sub,
+                                    color = Color.White.copy(alpha = 0.88f),
+                                    fontFamily = family,
+                                    fontSize = size.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    style = TextStyle(shadow = StatShadow),
+                                )
+                            }
                         }
                     }
                 }
@@ -372,18 +779,50 @@ private fun PcMonitorRow(
     }
 }
 
-private fun formatPercent(value: Double): String =
-    "${value.roundToInt()}%"
+@Composable
+private fun ScaleToFit(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        val child = measurables.firstOrNull() ?: return@Layout layout(0, 0) {}
+        val placeable = child.measure(Constraints())
+        val contentW = placeable.width.coerceAtLeast(1).toFloat()
+        val contentH = placeable.height.coerceAtLeast(1).toFloat()
+        val maxW = if (constraints.hasBoundedWidth) constraints.maxWidth.toFloat() else contentW
+        val maxH = if (constraints.hasBoundedHeight) constraints.maxHeight.toFloat() else contentH
+        val scale = min(maxW / contentW, maxH / contentH)
+        val outW = if (constraints.hasBoundedWidth) constraints.maxWidth else (contentW * scale).roundToInt()
+        val outH = if (constraints.hasBoundedHeight) constraints.maxHeight else (contentH * scale).roundToInt()
+        layout(outW, outH) {
+            placeable.placeWithLayer(
+                x = ((outW - placeable.width) / 2f).roundToInt(),
+                y = ((outH - placeable.height) / 2f).roundToInt(),
+            ) {
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = TransformOrigin.Center
+            }
+        }
+    }
+}
 
-private fun formatTemp(value: Double): String =
-    String.format(Locale.US, "%.0f°", value)
+private fun formatPercent(value: Double): String = "${value.roundToInt()}%"
+
+private fun formatTemp(value: Double): String = String.format(Locale.US, "%.0f°", value)
 
 @Composable
-private fun WeatherChip(weather: WeatherInfo) {
+private fun WeatherChip(
+    weather: WeatherInfo,
+    interactive: Boolean = true,
+    onLongPress: () -> Unit = {},
+) {
     StatusChip(
         icon = Icons.Outlined.Cloud,
         title = String.format(Locale.US, "%.1f°", weather.celsius),
         subtitle = "${weather.condition}  ${weather.city}",
+        interactive = interactive,
+        onLongPress = onLongPress,
     )
 }
 
@@ -393,6 +832,8 @@ private fun IndoorChip(
     humidity: Double?,
     name: String,
     online: Boolean,
+    interactive: Boolean = true,
+    onLongPress: () -> Unit = {},
 ) {
     val line = buildString {
         append(name)
@@ -404,34 +845,45 @@ private fun IndoorChip(
         title = String.format(Locale.US, "%.1f°", celsius),
         subtitle = line,
         dimmed = !online,
+        interactive = interactive,
+        onLongPress = onLongPress,
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun StatusChip(
     icon: ImageVector,
     title: String,
     subtitle: String,
     dimmed: Boolean = false,
+    interactive: Boolean = true,
+    onLongPress: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val type = LocalTypeLook.current
     val family = type.font.toFamily()
     val size = type.chipSize
     TilePanel(
-        modifier = Modifier.alpha(if (dimmed) 0.55f else 1f),
+        modifier = Modifier
+            .fillMaxSize()
+            .alpha(if (dimmed) 0.55f else 1f)
+            .combinedClickable(
+                enabled = interactive,
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = {},
+                onLongClick = onLongPress,
+            ),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = colors.primary,
-                modifier = Modifier.size(18.dp),
-            )
+            Icon(icon, contentDescription = null, tint = colors.primary, modifier = Modifier.size(18.dp))
             Column {
                 Text(
                     title,
@@ -440,7 +892,7 @@ private fun StatusChip(
                     fontSize = size.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
-                    style = androidx.compose.ui.text.TextStyle(shadow = StatShadow),
+                    style = TextStyle(shadow = StatShadow),
                 )
                 Text(
                     subtitle,
@@ -449,7 +901,7 @@ private fun StatusChip(
                     fontSize = (size * 0.78f).sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = androidx.compose.ui.text.TextStyle(shadow = StatShadow),
+                    style = TextStyle(shadow = StatShadow),
                 )
             }
         }
@@ -460,15 +912,14 @@ private fun StatusChip(
 @Composable
 private fun MediaTile(
     media: MediaInfo,
-    width: Dp,
-    height: Dp,
+    interactive: Boolean = true,
     onAction: (String) -> Unit,
+    onLongPress: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val type = LocalTypeLook.current
     val family = type.font.toFamily()
     val size = type.tileSize
-    val context = LocalContext.current
     val lit = media.playing
     val title = media.title?.takeIf { it.isNotBlank() } ?: if (media.playing) "正在播放" else "未在播放"
     val subtitle = buildList {
@@ -478,18 +929,13 @@ private fun MediaTile(
 
     TilePanel(
         modifier = Modifier
-            .width(width)
-            .height(height)
+            .fillMaxSize()
             .combinedClickable(
+                enabled = interactive,
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
                 onClick = {},
-                onLongClick = {
-                    context.startActivity(
-                        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
-                },
+                onLongClick = onLongPress,
             ),
         highlighted = lit,
     ) {
@@ -508,23 +954,8 @@ private fun MediaTile(
                 )
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        title,
-                        color = Color.White,
-                        fontFamily = family,
-                        fontSize = size.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        subtitle,
-                        color = Color.White.copy(alpha = 0.78f),
-                        fontFamily = family,
-                        fontSize = (size * 0.78f).sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Text(title, color = Color.White, fontFamily = family, fontSize = size.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, color = Color.White.copy(alpha = 0.78f), fontFamily = family, fontSize = (size * 0.78f).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             Row(
@@ -532,25 +963,15 @@ private fun MediaTile(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                MediaButton(R.drawable.ri_skip_back, interactive, { onAction("previous") }, "上一首")
                 MediaButton(
-                    drawable = R.drawable.ri_skip_back,
-                    enabled = true,
-                    onClick = { onAction("previous") },
-                    label = "上一首",
-                )
-                MediaButton(
-                    drawable = if (media.playing) R.drawable.ri_pause else R.drawable.ri_play,
-                    enabled = true,
-                    onClick = { onAction("toggle") },
-                    label = if (media.playing) "暂停" else "播放",
+                    if (media.playing) R.drawable.ri_pause else R.drawable.ri_play,
+                    interactive,
+                    { onAction("toggle") },
+                    if (media.playing) "暂停" else "播放",
                     emphasized = true,
                 )
-                MediaButton(
-                    drawable = R.drawable.ri_skip_forward,
-                    enabled = true,
-                    onClick = { onAction("next") },
-                    label = "下一首",
-                )
+                MediaButton(R.drawable.ri_skip_forward, interactive, { onAction("next") }, "下一首")
             }
         }
     }
@@ -568,9 +989,7 @@ private fun MediaButton(
         modifier = Modifier
             .size(if (emphasized) 38.dp else 34.dp)
             .clip(CircleShape)
-            .background(
-                if (emphasized) Color.White.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.14f),
-            )
+            .background(if (emphasized) Color.White.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.14f))
             .clickable(
                 enabled = enabled,
                 role = Role.Button,
@@ -589,13 +1008,14 @@ private fun MediaButton(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DeviceTile(
     device: HubDevice,
     busy: Boolean,
-    width: Dp,
-    height: Dp,
+    interactive: Boolean = true,
     onToggle: () -> Unit,
+    onLongPress: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val look = LocalTypeLook.current
@@ -605,39 +1025,39 @@ private fun DeviceTile(
     val lit = device.on && device.online
     TilePanel(
         modifier = Modifier
-            .width(width)
-            .height(height)
+            .fillMaxSize()
             .alpha(if (device.online) 1f else 0.5f)
-            .clickable(
-                enabled = device.online && !busy && type != DeviceType.Unknown,
+            .combinedClickable(
+                enabled = interactive && device.online && !busy && type != DeviceType.Unknown,
                 role = Role.Switch,
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
                 onClick = onToggle,
+                onLongClick = onLongPress,
             ),
         highlighted = lit,
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .background(
-                        if (lit) colors.primary.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.12f),
-                        CircleShape,
+                    .then(
+                        if (LocalTileChrome.current) {
+                            Modifier.background(
+                                if (lit) colors.primary.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.12f),
+                                CircleShape,
+                            )
+                        } else {
+                            Modifier
+                        },
                     ),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    imageVector = if (type == DeviceType.Light) {
-                        Icons.Outlined.Lightbulb
-                    } else {
-                        Icons.Outlined.PowerSettingsNew
-                    },
+                    imageVector = if (type == DeviceType.Light) Icons.Outlined.Lightbulb else Icons.Outlined.PowerSettingsNew,
                     contentDescription = null,
                     tint = if (lit) colors.primary else Color.White.copy(alpha = 0.88f),
                     modifier = Modifier.size(22.dp),
@@ -645,21 +1065,12 @@ private fun DeviceTile(
             }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    device.name,
-                    color = Color.White,
-                    fontFamily = family,
-                    fontSize = size.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Text(device.name, color = Color.White, fontFamily = family, fontSize = size.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     when {
                         !device.online -> "离线"
                         busy -> "执行中"
-                        device.on && type == DeviceType.Light && device.brightness != null ->
-                            "开  ${device.brightness}%"
+                        device.on && type == DeviceType.Light && device.brightness != null -> "开  ${device.brightness}%"
                         device.on -> "开"
                         else -> "关"
                     },
@@ -672,14 +1083,15 @@ private fun DeviceTile(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun WinTile(
     app: WinApp,
     selected: Boolean,
     busy: Boolean,
-    width: Dp,
-    height: Dp,
+    interactive: Boolean = true,
     onClick: () -> Unit,
+    onLongPress: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val look = LocalTypeLook.current
@@ -687,22 +1099,20 @@ private fun WinTile(
     val size = look.tileSize
     TilePanel(
         modifier = Modifier
-            .width(width)
-            .height(height)
+            .fillMaxSize()
             .alpha(if (app.online) 1f else 0.5f)
-            .clickable(
-                enabled = app.online && !busy,
+            .combinedClickable(
+                enabled = interactive && app.online && !busy,
                 role = Role.Button,
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
                 onClick = onClick,
+                onLongClick = onLongPress,
             ),
         highlighted = selected,
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val tint = if (selected) colors.primary else Color.White.copy(alpha = 0.88f)
@@ -710,27 +1120,22 @@ private fun WinTile(
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .background(
-                        if (selected) colors.primary.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.12f),
-                        CircleShape,
+                    .then(
+                        if (LocalTileChrome.current) {
+                            Modifier.background(
+                                if (selected) colors.primary.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.12f),
+                                CircleShape,
+                            )
+                        } else {
+                            Modifier
+                        },
                     ),
                 contentAlignment = Alignment.Center,
             ) {
                 if (remix != null) {
-                    Icon(
-                        painter = painterResource(remix),
-                        contentDescription = null,
-                        tint = tint,
-                        modifier = Modifier.size(22.dp),
-                    )
+                    Icon(painter = painterResource(remix), contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
                 } else {
-                    Text(
-                        app.name.take(1),
-                        color = tint,
-                        fontFamily = family,
-                        fontSize = size.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
+                    Text(app.name.take(1), color = tint, fontFamily = family, fontSize = size.sp, fontWeight = FontWeight.Medium)
                 }
             }
             Spacer(Modifier.width(10.dp))

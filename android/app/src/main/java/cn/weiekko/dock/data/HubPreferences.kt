@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.Json
 
 private val Context.dataStore by preferencesDataStore(name = "dock_hub")
 
@@ -67,6 +68,10 @@ class HubPreferences(private val context: Context) {
         prefs[KEY_POWER_SCREEN] ?: true
     }
 
+    val layout: Flow<DockLayout> = context.dataStore.data.map { prefs ->
+        decodeLayout(prefs[KEY_LAYOUT].orEmpty())
+    }
+
     suspend fun save(connection: HubConnection) {
         context.dataStore.edit { prefs ->
             prefs[KEY_HOST] = connection.host.trim()
@@ -105,6 +110,12 @@ class HubPreferences(private val context: Context) {
         }
     }
 
+    suspend fun saveLayout(layout: DockLayout) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_LAYOUT] = LAYOUT_JSON.encodeToString(DockLayout.serializer(), layout)
+        }
+    }
+
     companion object {
         private val KEY_HOST = stringPreferencesKey("host")
         private val KEY_PORT = intPreferencesKey("port")
@@ -119,5 +130,17 @@ class HubPreferences(private val context: Context) {
         private val KEY_TYPE_TILE = intPreferencesKey("type_tile")
         private val KEY_TYPE_CHIP = intPreferencesKey("type_chip")
         private val KEY_POWER_SCREEN = booleanPreferencesKey("power_screen")
+        private val KEY_LAYOUT = stringPreferencesKey("home_layout")
+
+        private val LAYOUT_JSON = Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
+
+        private fun decodeLayout(raw: String): DockLayout {
+            if (raw.isBlank()) return DockLayout()
+            return runCatching { LAYOUT_JSON.decodeFromString(DockLayout.serializer(), raw) }
+                .getOrElse { DockLayout() }
+        }
     }
 }

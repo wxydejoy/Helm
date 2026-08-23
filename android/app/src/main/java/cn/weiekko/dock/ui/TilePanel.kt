@@ -19,6 +19,8 @@ import cn.weiekko.dock.data.TileStyle
 
 val LocalTileLook = compositionLocalOf { TileLook() }
 
+val LocalTileChrome = compositionLocalOf { true }
+
 fun TileLook.fillBrush(highlighted: Boolean): Brush {
     val a = opacity
     return when (style) {
@@ -89,16 +91,21 @@ fun TilePanel(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val look = LocalTileLook.current
+    val chrome = LocalTileChrome.current
     val resolved = shape ?: look.cornerShape()
     Box(
-        modifier = modifier
-            .clip(resolved)
-            .background(look.fillBrush(highlighted))
-            .border(
-                width = look.strokeWidth(),
-                color = look.strokeColor(highlighted),
-                shape = resolved,
-            ),
+        modifier = if (chrome) {
+            modifier
+                .clip(resolved)
+                .background(look.fillBrush(highlighted))
+                .border(
+                    width = look.strokeWidth(),
+                    color = look.strokeColor(highlighted),
+                    shape = resolved,
+                )
+        } else {
+            modifier
+        },
         content = content,
     )
 }

@@ -114,6 +114,13 @@ class MainActivity : ComponentActivity() {
                                     onPower = viewModel::setPower,
                                     onWinClick = viewModel::tapWinApp,
                                     onMedia = viewModel::sendMedia,
+                                    onSelectModule = viewModel::selectModule,
+                                    onMoveModule = viewModel::moveModule,
+                                    onResizeModule = viewModel::resizeModule,
+                                    onHideModule = viewModel::hideModule,
+                                    onToggleModuleChrome = viewModel::toggleModuleChrome,
+                                    onExitEdit = viewModel::exitEdit,
+                                    onResetLayout = viewModel::resetLayout,
                                 )
                             }
                             composable("settings") {
@@ -126,6 +133,10 @@ class MainActivity : ComponentActivity() {
                                     onSetTileLook = viewModel::setTileLook,
                                     onSetTypeLook = viewModel::setTypeLook,
                                     onSetPowerScreen = viewModel::setPowerScreen,
+                                    onEditLayout = viewModel::enterEdit,
+                                    onSetModuleVisible = viewModel::setModuleVisible,
+                                    onSetModuleChrome = viewModel::setModuleChrome,
+                                    onResetLayout = viewModel::resetLayout,
                                     onBack = { navController.popBackStack() },
                                 )
                             }

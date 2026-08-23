@@ -7,6 +7,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import cn.weiekko.dock.data.DemoSnapshot
 import cn.weiekko.dock.data.DeviceType
+import cn.weiekko.dock.data.DockLayout
+import cn.weiekko.dock.data.DockModule
 import cn.weiekko.dock.data.Health
 import cn.weiekko.dock.data.HubClient
 import cn.weiekko.dock.data.HubConnection
@@ -15,13 +17,18 @@ import cn.weiekko.dock.data.HubException
 import cn.weiekko.dock.data.HubNetworkException
 import cn.weiekko.dock.data.HubPreferences
 import cn.weiekko.dock.data.MediaInfo
+import cn.weiekko.dock.data.ModuleRect
 import cn.weiekko.dock.data.Snapshot
 import cn.weiekko.dock.data.WeatherInfo
 import cn.weiekko.dock.data.TileLook
 import cn.weiekko.dock.data.TypeLook
 import cn.weiekko.dock.data.WinApp
+import cn.weiekko.dock.data.defaultDockLayout
 import cn.weiekko.dock.data.deviceType
+import cn.weiekko.dock.data.grow
 import cn.weiekko.dock.data.isLoginRequired
+import cn.weiekko.dock.data.nudge
+import cn.weiekko.dock.data.snap
 import cn.weiekko.dock.data.toWinApp
 import cn.weiekko.dock.media.PhoneMedia
 import kotlinx.coroutines.CancellationException
@@ -61,6 +68,9 @@ data class DockUiState(
     val tileLook: TileLook = TileLook(),
     val typeLook: TypeLook = TypeLook(),
     val powerScreen: Boolean = true,
+    val layout: DockLayout = DockLayout(),
+    val editing: Boolean = false,
+    val selectedModule: DockModule? = null,
 ) {
     val configured: Boolean get() = connection.isConfigured
 }
@@ -82,6 +92,7 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
     private var pollJob: Job? = null
     private var tileLookJob: Job? = null
     private var typeLookJob: Job? = null
+    private var layoutJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -107,6 +118,13 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             prefs.powerScreen.collect { enabled ->
                 _ui.update { it.copy(powerScreen = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            prefs.layout.collect { layout ->
+                if (!_ui.value.editing) {
+                    _ui.update { it.copy(layout = layout) }
+                }
             }
         }
         viewModelScope.launch {
@@ -182,6 +200,144 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         _ui.update { it.copy(powerScreen = enabled) }
         viewModelScope.launch {
             prefs.savePowerScreen(enabled)
+        }
+    }
+
+    fun enterEdit() {
+        _ui.update { it.copy(editing = true) }
+        _goHome.tryEmit(Unit)
+    }
+
+    fun exitEdit() {
+        persistLayout(_ui.value.layout)
+        _ui.update { it.copy(editing = false, selectedModule = null) }
+    }
+
+    fun selectModule(id: DockModule?) {
+        _ui.update { current ->
+            if (current.selectedModule == id && (id == null || current.editing)) current
+            else current.copy(selectedModule = id, editing = true)
+        }
+    }
+
+    fun toggleModule(id: DockModule) {
+        val current = _ui.value.layout.rect(id)
+        setModuleVisible(id, !(current?.visible ?: true))
+    }
+
+    fun setModuleVisible(id: DockModule, visible: Boolean) {
+        val layout = _ui.value.layout
+        val current = layout.rect(id)
+        val next = if (current == null || current.isPlaceholder()) {
+            ModuleRect(
+                x = 0f,
+                y = 0f,
+                w = 0f,
+                h = 0f,
+                visible = visible,
+                chrome = current?.chrome ?: true,
+            )
+        } else {
+            current.copy(visible = visible)
+        }
+        commitLayout(layout.with(id, next))
+    }
+
+    fun setModuleChrome(id: DockModule, chrome: Boolean) {
+        val layout = _ui.value.layout
+        val current = layout.rect(id)
+        val next = if (current == null || current.isPlaceholder()) {
+            ModuleRect(
+                x = 0f,
+                y = 0f,
+                w = 0f,
+                h = 0f,
+                visible = current?.visible ?: true,
+                chrome = chrome,
+            )
+        } else {
+            current.copy(chrome = chrome)
+        }
+        commitLayout(layout.with(id, next))
+    }
+
+    fun toggleModuleChrome(
+        id: DockModule,
+        canvasW: Float,
+        canvasH: Float,
+        tileW: Float,
+        tileH: Float,
+    ) {
+        val layout = resolvedLayout(canvasW, canvasH, tileW, tileH)
+        val current = layout.rect(id) ?: return
+        commitLayout(layout.with(id, current.copy(chrome = !current.chrome)))
+    }
+
+    fun hideModule(id: DockModule, canvasW: Float, canvasH: Float, tileW: Float, tileH: Float) {
+        val layout = resolvedLayout(canvasW, canvasH, tileW, tileH)
+        val current = layout.rect(id) ?: return
+        commitLayout(layout.with(id, current.copy(visible = false)))
+        _ui.update { it.copy(selectedModule = null) }
+    }
+
+    fun moveModule(
+        id: DockModule,
+        dxPx: Float,
+        dyPx: Float,
+        canvasW: Float,
+        canvasH: Float,
+        tileW: Float,
+        tileH: Float,
+    ) {
+        if (canvasW <= 0f || canvasH <= 0f) return
+        val layout = resolvedLayout(canvasW, canvasH, tileW, tileH)
+        val current = layout.rect(id) ?: return
+        val next = current.nudge(dxPx / canvasW, dyPx / canvasH).snap(canvasW, canvasH)
+        commitLayout(layout.with(id, next), debounce = true)
+    }
+
+    fun resizeModule(
+        id: DockModule,
+        dwPx: Float,
+        dhPx: Float,
+        canvasW: Float,
+        canvasH: Float,
+        tileW: Float,
+        tileH: Float,
+    ) {
+        if (canvasW <= 0f || canvasH <= 0f) return
+        val layout = resolvedLayout(canvasW, canvasH, tileW, tileH)
+        val current = layout.rect(id) ?: return
+        val next = current.grow(dwPx / canvasW, dhPx / canvasH).snap(canvasW, canvasH)
+        commitLayout(layout.with(id, next), debounce = true)
+    }
+
+    fun resetLayout() {
+        commitLayout(DockLayout())
+        _ui.update { it.copy(selectedModule = null) }
+    }
+
+    fun resolvedLayout(canvasW: Float, canvasH: Float, tileW: Float, tileH: Float): DockLayout {
+        val defaults = defaultDockLayout(canvasW, canvasH, tileW, tileH)
+        return _ui.value.layout.mergedWith(defaults)
+    }
+
+    private fun commitLayout(layout: DockLayout, debounce: Boolean = false) {
+        _ui.update { it.copy(layout = layout) }
+        if (!debounce) {
+            persistLayout(layout)
+            return
+        }
+        layoutJob?.cancel()
+        layoutJob = viewModelScope.launch {
+            delay(180)
+            persistLayout(layout)
+        }
+    }
+
+    private fun persistLayout(layout: DockLayout) {
+        viewModelScope.launch {
+            prefs.saveLayout(layout)
         }
     }
 

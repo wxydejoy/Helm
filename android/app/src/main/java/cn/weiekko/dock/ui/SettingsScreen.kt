@@ -66,6 +66,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.weiekko.dock.data.DockFont
+import cn.weiekko.dock.data.DockModule
 import cn.weiekko.dock.data.HubConnection
 import cn.weiekko.dock.data.TileLook
 import cn.weiekko.dock.data.TileStyle
@@ -83,6 +84,10 @@ fun SettingsScreen(
     onSetTileLook: (TileLook) -> Unit,
     onSetTypeLook: (TypeLook) -> Unit,
     onSetPowerScreen: (Boolean) -> Unit,
+    onEditLayout: () -> Unit = {},
+    onSetModuleVisible: (DockModule, Boolean) -> Unit = { _, _ -> },
+    onSetModuleChrome: (DockModule, Boolean) -> Unit = { _, _ -> },
+    onResetLayout: () -> Unit = {},
     onBack: () -> Unit,
 ) {
     var host by rememberSaveable { mutableStateOf(state.connection.host) }
@@ -315,6 +320,100 @@ fun SettingsScreen(
                     ) {
                         Text("清除")
                     }
+                }
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = colors.surface,
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Text("主屏布局", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "长按主屏任意模块进入编排：拖动移动，右下角缩放。选中后可隐藏模块，或去掉背景边框。",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(14.dp))
+                Button(
+                    onClick = onEditLayout,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = MaterialTheme.shapes.medium,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.primary,
+                        contentColor = colors.onPrimary,
+                    ),
+                ) {
+                    Text("编辑布局")
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        context.startActivity(
+                            Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Text("媒体通知使用权")
+                }
+                Spacer(Modifier.height(4.dp))
+                DockModule.entries.forEach { module ->
+                    val rect = state.layout.rect(module)
+                    val visible = rect?.visible ?: true
+                    val chrome = rect?.chrome ?: true
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            module.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                "显示",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.onSurfaceVariant,
+                            )
+                            Switch(
+                                checked = visible,
+                                onCheckedChange = { onSetModuleVisible(module, it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = colors.onPrimary,
+                                    checkedTrackColor = colors.primary,
+                                ),
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                "背景",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.onSurfaceVariant,
+                            )
+                            Switch(
+                                checked = chrome,
+                                onCheckedChange = { onSetModuleChrome(module, it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = colors.onPrimary,
+                                    checkedTrackColor = colors.primary,
+                                ),
+                            )
+                        }
+                    }
+                }
+                OutlinedButton(
+                    onClick = onResetLayout,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Text("恢复默认布局")
                 }
             }
         }
