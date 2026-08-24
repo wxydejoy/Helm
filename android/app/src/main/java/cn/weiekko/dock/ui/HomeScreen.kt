@@ -132,7 +132,7 @@ fun HomeScreen(
                 .background(if (videoUri == null) colors.background else Color.Transparent),
         ) {
             if (videoUri != null) {
-                VideoBackground(uri = videoUri)
+                VideoBackground(uri = videoUri, playing = !state.hubSleeping)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -397,6 +397,16 @@ fun HomeScreen(
                         onReset = onResetLayout,
                     )
                 }
+            }
+
+            if (state.hubSleeping) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                        .zIndex(20f)
+                        .pointerInput(Unit) {},
+                )
             }
         }
     }

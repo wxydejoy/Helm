@@ -28,7 +28,7 @@ object DockPower {
             putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent(context))
             putExtra(
                 DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                "授权后，拔掉充电会立刻熄屏。只用于锁屏，不会改密码或擦除数据。",
+                "授权后，拔掉充电会立刻锁屏熄屏。只用于锁屏，不会改密码或擦除数据。",
             )
         }
     }
@@ -45,6 +45,17 @@ object DockPower {
         } else {
             activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
+    }
+
+    /** Hub 休眠：压黑背光，但不锁屏，避免 MIUI 把进程杀掉。 */
+    fun dimForHubSleep(activity: Activity, dim: Boolean) {
+        val params = activity.window.attributes
+        params.screenBrightness = if (dim) {
+            0f
+        } else {
+            WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        }
+        activity.window.attributes = params
     }
 
     fun wake(activity: Activity) {

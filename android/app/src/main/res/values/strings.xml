@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Helm</string>
-    <string name="device_admin_desc">仅用于拔掉充电时立刻熄屏，不会改密码或清除数据。</string>
+    <string name="device_admin_desc">用于立刻熄屏：拔掉充电，或电脑 Hub 长时间连不上时。不会改密码或清除数据。</string>
+    <string name="hub_watch_channel">Hub 探测</string>
+    <string name="hub_watch_title">正在等待电脑</string>
+    <string name="hub_watch_text">Hub 恢复后会自动亮屏</string>
 </resources>

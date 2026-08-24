@@ -28,15 +28,19 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import cn.weiekko.dock.data.HubConnection
 import cn.weiekko.dock.power.DockPower
+import cn.weiekko.dock.power.HubWatchService
+import cn.weiekko.dock.power.ScreenCommand
 import cn.weiekko.dock.ui.DockTheme
 import cn.weiekko.dock.ui.DockViewModel
 import cn.weiekko.dock.ui.HomeScreen
 import cn.weiekko.dock.ui.SettingsScreen
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val viewModel: DockViewModel by viewModels()
@@ -45,7 +49,9 @@ class MainActivity : ComponentActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (!viewModel.ui.value.powerScreen) return
             when (intent?.action) {
-                Intent.ACTION_POWER_CONNECTED -> DockPower.wake(this@MainActivity)
+                Intent.ACTION_POWER_CONNECTED -> {
+                    if (!viewModel.ui.value.hubSleeping) DockPower.wake(this@MainActivity)
+                }
                 Intent.ACTION_POWER_DISCONNECTED -> DockPower.sleep(this@MainActivity)
             }
         }
@@ -65,6 +71,22 @@ class MainActivity : ComponentActivity() {
         )
         hideSystemBars()
         applyHubExtras(intent)
+        handleWakeIntent(intent)
+        lifecycleScope.launch {
+            viewModel.screenCommands.collect { command ->
+                when (command) {
+                    ScreenCommand.Sleep -> {
+                        HubWatchService.start(this@MainActivity)
+                        enterHubSleep()
+                    }
+                    ScreenCommand.Wake -> {
+                        HubWatchService.stop(this@MainActivity)
+                        exitHubSleep()
+                        DockPower.wake(this@MainActivity)
+                    }
+                }
+            }
+        }
         setContent {
             val state by viewModel.ui.collectAsStateWithLifecycle()
             val navController = rememberNavController()
@@ -84,7 +106,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            LaunchedEffect(state.powerScreen) {
+            LaunchedEffect(state.powerScreen, state.hubSleeping) {
                 applyPowerState()
             }
 
@@ -133,6 +155,8 @@ class MainActivity : ComponentActivity() {
                                     onSetTileLook = viewModel::setTileLook,
                                     onSetTypeLook = viewModel::setTypeLook,
                                     onSetPowerScreen = viewModel::setPowerScreen,
+                                    onSetHubSleepDelay = viewModel::setHubSleepDelay,
+                                    onSetHubReconnect = viewModel::setHubReconnect,
                                     onEditLayout = viewModel::enterEdit,
                                     onSetModuleVisible = viewModel::setModuleVisible,
                                     onSetModuleChrome = viewModel::setModuleChrome,
@@ -151,6 +175,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         applyHubExtras(intent)
+        handleWakeIntent(intent)
     }
 
     override fun onStart() {
@@ -186,15 +211,38 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyPowerState() {
-        if (!viewModel.ui.value.powerScreen) {
+        val state = viewModel.ui.value
+        if (!state.powerScreen) {
             DockPower.keepScreenOn(this, false)
             return
         }
+        if (state.hubSleeping) {
+            enterHubSleep()
+            return
+        }
+        DockPower.dimForHubSleep(this, false)
         if (DockPower.isPlugged(this)) {
             DockPower.wake(this)
         } else {
             DockPower.keepScreenOn(this, false)
         }
+    }
+
+    private fun enterHubSleep() {
+        DockPower.dimForHubSleep(this, true)
+        DockPower.keepScreenOn(this, true)
+    }
+
+    private fun exitHubSleep() {
+        DockPower.dimForHubSleep(this, false)
+    }
+
+    private fun handleWakeIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_HUB_WAKE, false) != true) return
+        viewModel.onHubReachable()
+        HubWatchService.stop(this)
+        exitHubSleep()
+        DockPower.wake(this)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -223,5 +271,17 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_HOST = "host"
         const val EXTRA_PORT = "port"
         const val EXTRA_TOKEN = "token"
+        const val EXTRA_HUB_WAKE = "hub_wake"
+
+        fun wakeIntent(context: Context): Intent {
+            return Intent(context, MainActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
+                )
+                putExtra(EXTRA_HUB_WAKE, true)
+            }
+        }
     }
 }

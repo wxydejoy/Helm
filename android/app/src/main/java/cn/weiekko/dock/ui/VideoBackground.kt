@@ -31,6 +31,7 @@ import cn.weiekko.dock.R
 @Composable
 fun VideoBackground(
     uri: String,
+    playing: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -76,16 +77,21 @@ fun VideoBackground(
         }
     }
 
-    DisposableEffect(player, lifecycleOwner) {
+    DisposableEffect(player, lifecycleOwner, playing) {
         val exo = player ?: return@DisposableEffect onDispose {}
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> if (!failed) exo.play()
+                Lifecycle.Event.ON_START -> if (!failed && playing) exo.play()
                 Lifecycle.Event.ON_STOP -> exo.pause()
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+        if (!failed && playing && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            exo.play()
+        } else {
+            exo.pause()
+        }
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
@@ -105,8 +111,8 @@ fun VideoBackground(
             }
             if (exo.playbackState == Player.STATE_IDLE) {
                 exo.prepare()
-                exo.playWhenReady = true
             }
+            exo.playWhenReady = playing
         },
         onRelease = { view ->
             view.player = null

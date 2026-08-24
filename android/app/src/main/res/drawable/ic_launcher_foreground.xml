@@ -4,10 +4,51 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#E8E4DC"
-        android:pathData="M54,22c-4.4,0 -8,3.6 -8,8v28.2c-3.6,2.2 -6,6.2 -6,10.8c0,6.6 5.4,12 12,12s12,-5.4 12,-12c0,-4.6 -2.4,-8.6 -6,-10.8V30c0,-4.4 -3.6,-8 -8,-8zM54,76c-3.9,0 -7,-3.1 -7,-7c0,-2.7 1.5,-5 3.8,-6.2L52,61.5V30c0,-1.1 0.9,-2 2,-2s2,0.9 2,2v31.5l1.2,1.3C59.5,64 61,66.3 61,69c0,3.9 -3.1,7 -7,7z" />
-    <path
-        android:fillColor="#E8E4DC"
-        android:pathData="M54,66m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <!-- Helm wheel: 8 spokes + rim + hub, cream on adaptive foreground -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54">
+        <path
+            android:fillColor="#E8E4DC"
+            android:pathData="M52.2,22h3.6v12h-3.6z" />
+        <path
+            android:fillColor="#E8E4DC"
+            android:pathData="M54,18.4a3.4,3.4 0,1 1,0 6.8a3.4,3.4 0,1 1,0 -6.8z" />
+        <group android:rotation="45" android:pivotX="54" android:pivotY="54">
+            <path android:fillColor="#E8E4DC" android:pathData="M52.2,22h3.6v12h-3.6z" />
+            <path android:fillColor="#E8E4DC" android:pathData="M54,18.4a3.4,3.4 0,1 1,0 6.8a3.4,3.4 0,1 1,0 -6.8z" />
+        </group>
+        <group android:rotation="90" android:pivotX="54" android:pivotY="54">
+            <path android:fillColor="#E8E4DC" android:pathData="M52.2,22h3.6v12h-3.6z" />
+            <path android:fillColor="#E8E4DC" android:pathData="M54,18.4a3.4,3.4 0,1 1,0 6.8a3.4,3.4 0,1 1,0 -6.8z" />
+        </group>
+        <group android:rotation="135" android:pivotX="54" android:pivotY="54">
+            <path android:fillColor="#E8E4DC" android:pathData="M52.2,22h3.6v12h-3.6z" />
+            <path android:fillColor="#E8E4DC" android:pathData="M54,18.4a3.4,3.4 0,1 1,0 6.8a3.4,3.4 0,1 1,0 -6.8z" />
+        </group>
+        <group android:rotation="180" android:pivotX="54" android:pivotY="54">
+            <path android:fillColor="#E8E4DC" android:pathData="M52.2,22h3.6v12h-3.6z" />
+            <path android:fillColor="#E8E4DC" android:pathData="M54,18.4a3.4,3.4 0,1 1,0 6.8a3.4,3.4 0,1 1,0 -6.8z" />
+        </group>
+        <group android:rotation="225" android:pivotX="54" android:pivotY="54">
+            <path android:fillColor="#E8E4DC" android:pathData="M52.2,22h3.6v12h-3.6z" />
+            <path android:fillColor="#E8E4DC" android:pathData="M54,18.4a3.4,3.4 0,1 1,0 6.8a3.4,3.4 0,1 1,0 -6.8z" />
+        </group>
+        <group android:rotation="270" android:pivotX="54" android:pivotY="54">
+            <path android:fillColor="#E8E4DC" android:pathData="M52.2,22h3.6v12h-3.6z" />
+            <path android:fillColor="#E8E4DC" android:pathData="M54,18.4a3.4,3.4 0,1 1,0 6.8a3.4,3.4 0,1 1,0 -6.8z" />
+        </group>
+        <group android:rotation="315" android:pivotX="54" android:pivotY="54">
+            <path android:fillColor="#E8E4DC" android:pathData="M52.2,22h3.6v12h-3.6z" />
+            <path android:fillColor="#E8E4DC" android:pathData="M54,18.4a3.4,3.4 0,1 1,0 6.8a3.4,3.4 0,1 1,0 -6.8z" />
+        </group>
+        <path
+            android:fillColor="#E8E4DC"
+            android:fillType="evenOdd"
+            android:pathData="M54,33.5a20.5,20.5 0,1 1,0 41a20.5,20.5 0,1 1,0 -41zM54,39.2a14.8,14.8 0,1 0,0 29.6a14.8,14.8 0,1 0,0 -29.6z" />
+        <path
+            android:fillColor="#E8E4DC"
+            android:fillType="evenOdd"
+            android:pathData="M54,46.2a7.8,7.8 0,1 1,0 15.6a7.8,7.8 0,1 1,0 -15.6zM54,50.4a3.6,3.6 0,1 0,0 7.2a3.6,3.6 0,1 0,0 -7.2z" />
+    </group>
 </vector>

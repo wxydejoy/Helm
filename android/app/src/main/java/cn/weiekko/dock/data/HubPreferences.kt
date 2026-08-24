@@ -68,6 +68,14 @@ class HubPreferences(private val context: Context) {
         prefs[KEY_POWER_SCREEN] ?: true
     }
 
+    val hubSleepDelaySec: Flow<Int> = context.dataStore.data.map { prefs ->
+        prefs[KEY_HUB_SLEEP_DELAY_SEC] ?: DEFAULT_HUB_SLEEP_DELAY_SEC
+    }
+
+    val hubReconnectSec: Flow<Int> = context.dataStore.data.map { prefs ->
+        prefs[KEY_HUB_RECONNECT_SEC] ?: DEFAULT_HUB_RECONNECT_SEC
+    }
+
     val layout: Flow<DockLayout> = context.dataStore.data.map { prefs ->
         decodeLayout(prefs[KEY_LAYOUT].orEmpty())
     }
@@ -110,6 +118,18 @@ class HubPreferences(private val context: Context) {
         }
     }
 
+    suspend fun saveHubSleepDelaySec(sec: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_HUB_SLEEP_DELAY_SEC] = sec.coerceIn(15, 600)
+        }
+    }
+
+    suspend fun saveHubReconnectSec(sec: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_HUB_RECONNECT_SEC] = sec.coerceIn(5, 120)
+        }
+    }
+
     suspend fun saveLayout(layout: DockLayout) {
         context.dataStore.edit { prefs ->
             prefs[KEY_LAYOUT] = LAYOUT_JSON.encodeToString(DockLayout.serializer(), layout)
@@ -130,7 +150,12 @@ class HubPreferences(private val context: Context) {
         private val KEY_TYPE_TILE = intPreferencesKey("type_tile")
         private val KEY_TYPE_CHIP = intPreferencesKey("type_chip")
         private val KEY_POWER_SCREEN = booleanPreferencesKey("power_screen")
+        private val KEY_HUB_SLEEP_DELAY_SEC = intPreferencesKey("hub_sleep_delay_sec")
+        private val KEY_HUB_RECONNECT_SEC = intPreferencesKey("hub_reconnect_sec")
         private val KEY_LAYOUT = stringPreferencesKey("home_layout")
+
+        const val DEFAULT_HUB_SLEEP_DELAY_SEC = 60
+        const val DEFAULT_HUB_RECONNECT_SEC = 15
 
         private val LAYOUT_JSON = Json {
             ignoreUnknownKeys = true

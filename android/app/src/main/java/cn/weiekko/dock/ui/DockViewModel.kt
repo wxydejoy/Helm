@@ -3,6 +3,7 @@ package cn.weiekko.dock.ui
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import cn.weiekko.dock.data.DemoSnapshot
@@ -31,6 +32,7 @@ import cn.weiekko.dock.data.nudge
 import cn.weiekko.dock.data.snap
 import cn.weiekko.dock.data.toWinApp
 import cn.weiekko.dock.media.PhoneMedia
+import cn.weiekko.dock.power.ScreenCommand
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -68,6 +70,9 @@ data class DockUiState(
     val tileLook: TileLook = TileLook(),
     val typeLook: TypeLook = TypeLook(),
     val powerScreen: Boolean = true,
+    val hubSleepDelaySec: Int = HubPreferences.DEFAULT_HUB_SLEEP_DELAY_SEC,
+    val hubReconnectSec: Int = HubPreferences.DEFAULT_HUB_RECONNECT_SEC,
+    val hubSleeping: Boolean = false,
     val layout: DockLayout = DockLayout(),
     val editing: Boolean = false,
     val selectedModule: DockModule? = null,
@@ -89,7 +94,12 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
     private val _goSettings = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val goSettings: SharedFlow<Unit> = _goSettings.asSharedFlow()
 
+    private val _screenCommands = MutableSharedFlow<ScreenCommand>(extraBufferCapacity = 8)
+    val screenCommands: SharedFlow<ScreenCommand> = _screenCommands.asSharedFlow()
+
     private var pollJob: Job? = null
+    private var hubSleepJob: Job? = null
+    private var disconnectedAt: Long? = null
     private var tileLookJob: Job? = null
     private var typeLookJob: Job? = null
     private var layoutJob: Job? = null
@@ -118,6 +128,19 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             prefs.powerScreen.collect { enabled ->
                 _ui.update { it.copy(powerScreen = enabled) }
+                if (!enabled) cancelHubSleep(wake = false)
+                else if (disconnectedAt != null) scheduleHubSleep()
+            }
+        }
+        viewModelScope.launch {
+            prefs.hubSleepDelaySec.collect { sec ->
+                _ui.update { it.copy(hubSleepDelaySec = sec) }
+                if (disconnectedAt != null && !_ui.value.hubSleeping) scheduleHubSleep()
+            }
+        }
+        viewModelScope.launch {
+            prefs.hubReconnectSec.collect { sec ->
+                _ui.update { it.copy(hubReconnectSec = sec) }
             }
         }
         viewModelScope.launch {
@@ -144,6 +167,7 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
                     restartPolling(connection)
                 } else {
                     pollJob?.cancel()
+                    cancelHubSleep(wake = _ui.value.hubSleeping)
                     _ui.update {
                         it.copy(
                             prefsReady = true,
@@ -198,8 +222,35 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPowerScreen(enabled: Boolean) {
         _ui.update { it.copy(powerScreen = enabled) }
+        if (!enabled) cancelHubSleep(wake = _ui.value.hubSleeping)
+        else if (disconnectedAt != null) scheduleHubSleep()
         viewModelScope.launch {
             prefs.savePowerScreen(enabled)
+        }
+    }
+
+    fun setHubSleepDelay(sec: Int) {
+        val next = sec.coerceIn(15, 600)
+        _ui.update { it.copy(hubSleepDelaySec = next) }
+        if (disconnectedAt != null && !_ui.value.hubSleeping) scheduleHubSleep()
+        viewModelScope.launch {
+            prefs.saveHubSleepDelaySec(next)
+        }
+    }
+
+    fun setHubReconnect(sec: Int) {
+        val next = sec.coerceIn(5, 120)
+        _ui.update { it.copy(hubReconnectSec = next) }
+        viewModelScope.launch {
+            prefs.saveHubReconnectSec(next)
+        }
+    }
+
+    fun onHubReachable() {
+        noteHubUp()
+        val connection = _ui.value.connection
+        if (connection.isConfigured) {
+            viewModelScope.launch { pullSnapshot(connection, showLoading = false) }
         }
     }
 
@@ -521,8 +572,20 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         pollJob = viewModelScope.launch {
             pullSnapshot(connection, showLoading = _ui.value.snapshot == null)
             while (isActive) {
+                val down = disconnectedAt != null
                 val hasLive = _ui.value.snapshot?.pc != null
-                delay(if (hasLive) POLL_PC_MS else POLL_MS)
+                val wait = when {
+                    down -> _ui.value.hubReconnectSec.coerceIn(5, 120) * 1000L
+                    hasLive -> POLL_PC_MS
+                    else -> POLL_MS
+                }
+                delay(wait)
+                if (down) {
+                    val reachable = withContext(Dispatchers.IO) {
+                        runCatching { client.health(connection) }.isSuccess
+                    }
+                    if (!reachable) continue
+                }
                 pullSnapshot(connection, showLoading = false)
             }
         }
@@ -545,6 +608,7 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
                 val winApps = snapshot.devices
                     .filter { it.deviceType() == DeviceType.Action }
                     .map { it.toWinApp() }
+                noteHubUp()
                 _ui.update {
                     it.copy(
                         snapshot = snapshot,
@@ -572,9 +636,59 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
                 stale = it.snapshot != null && !login,
             )
         }
+        if (error is HubNetworkException) {
+            noteHubDown()
+        } else {
+            noteHubUp()
+        }
         if (unauthorized) {
             _goSettings.tryEmit(Unit)
         }
+    }
+
+    private fun noteHubDown() {
+        if (_ui.value.preview || !_ui.value.connection.isConfigured) return
+        if (disconnectedAt == null) disconnectedAt = SystemClock.elapsedRealtime()
+        scheduleHubSleep()
+    }
+
+    private fun noteHubUp() {
+        val shouldWake = _ui.value.hubSleeping || disconnectedAt != null
+        disconnectedAt = null
+        hubSleepJob?.cancel()
+        hubSleepJob = null
+        if (_ui.value.hubSleeping) {
+            _ui.update { it.copy(hubSleeping = false) }
+        }
+        if (shouldWake && _ui.value.powerScreen) {
+            _screenCommands.tryEmit(ScreenCommand.Wake)
+        }
+    }
+
+    private fun scheduleHubSleep() {
+        hubSleepJob?.cancel()
+        if (!_ui.value.powerScreen) return
+        if (_ui.value.preview || !_ui.value.connection.isConfigured) return
+        if (_ui.value.hubSleeping) return
+        val started = disconnectedAt ?: return
+        val waitMs = _ui.value.hubSleepDelaySec.coerceIn(15, 600) * 1000L
+        val remaining = waitMs - (SystemClock.elapsedRealtime() - started)
+        hubSleepJob = viewModelScope.launch {
+            if (remaining > 0) delay(remaining)
+            if (disconnectedAt == null) return@launch
+            if (!_ui.value.powerScreen) return@launch
+            _ui.update { it.copy(hubSleeping = true) }
+            _screenCommands.tryEmit(ScreenCommand.Sleep)
+        }
+    }
+
+    private fun cancelHubSleep(wake: Boolean) {
+        disconnectedAt = null
+        hubSleepJob?.cancel()
+        hubSleepJob = null
+        val wasSleeping = _ui.value.hubSleeping
+        if (wasSleeping) _ui.update { it.copy(hubSleeping = false) }
+        if (wake && wasSleeping) _screenCommands.tryEmit(ScreenCommand.Wake)
     }
 
     companion object {

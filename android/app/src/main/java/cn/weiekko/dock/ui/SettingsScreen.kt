@@ -84,6 +84,8 @@ fun SettingsScreen(
     onSetTileLook: (TileLook) -> Unit,
     onSetTypeLook: (TypeLook) -> Unit,
     onSetPowerScreen: (Boolean) -> Unit,
+    onSetHubSleepDelay: (Int) -> Unit = {},
+    onSetHubReconnect: (Int) -> Unit = {},
     onEditLayout: () -> Unit = {},
     onSetModuleVisible: (DockModule, Boolean) -> Unit = { _, _ -> },
     onSetModuleChrome: (DockModule, Boolean) -> Unit = { _, _ -> },
@@ -705,8 +707,8 @@ fun SettingsScreen(
                         Spacer(Modifier.height(4.dp))
                         Text(
                             if (state.powerScreen) {
-                                if (adminGranted) "已开。插电亮屏，拔电立刻熄屏。"
-                                else "已开。插电会亮屏；拔电熄屏需要先授权设备管理员。"
+                                if (adminGranted) "已开。插电亮屏，拔电立刻熄屏。Hub 长时间连不上会压黑屏幕（应用继续跑），连上后自动亮屏。"
+                                else "已开。插电会亮屏；拔电立刻熄屏需要先授权设备管理员。"
                             } else {
                                 "已关。屏幕按系统超时处理。"
                             },
@@ -721,6 +723,50 @@ fun SettingsScreen(
                             checkedTrackColor = colors.primary,
                         ),
                     )
+                }
+                if (state.powerScreen) {
+                    Spacer(Modifier.height(16.dp))
+                    Text("Hub 断连后熄屏", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf(30 to "30秒", 60 to "1分钟", 120 to "2分钟", 300 to "5分钟").forEach { (sec, label) ->
+                            FilterChip(
+                                selected = state.hubSleepDelaySec == sec,
+                                onClick = { onSetHubSleepDelay(sec) },
+                                label = { Text(label) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = colors.primary.copy(alpha = 0.28f),
+                                    selectedLabelColor = colors.onBackground,
+                                    containerColor = colors.surfaceVariant,
+                                    labelColor = colors.onSurfaceVariant,
+                                ),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Text("定时探测间隔", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf(10 to "10秒", 15 to "15秒", 30 to "30秒", 60 to "1分钟").forEach { (sec, label) ->
+                            FilterChip(
+                                selected = state.hubReconnectSec == sec,
+                                onClick = { onSetHubReconnect(sec) },
+                                label = { Text(label) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = colors.primary.copy(alpha = 0.28f),
+                                    selectedLabelColor = colors.onBackground,
+                                    containerColor = colors.surfaceVariant,
+                                    labelColor = colors.onSurfaceVariant,
+                                ),
+                            )
+                        }
+                    }
                 }
                 if (state.powerScreen && !adminGranted) {
                     Spacer(Modifier.height(12.dp))
