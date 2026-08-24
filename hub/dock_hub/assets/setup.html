@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dock Hub 配置向导</title>
+  <style>
+    :root { --bg:#0f1419; --card:#1a2332; --line:#2a3544; --text:#e8eef7; --muted:#8fa3bd; --accent:#3b82f6; --ok:#22c55e; --warn:#f59e0b; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:15px/1.5 "Segoe UI", system-ui, sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width:920px; margin:0 auto; padding:24px 20px 48px; }
+    h1 { margin:0 0 8px; font-size:28px; }
+    .sub { color:var(--muted); margin-bottom:24px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin-bottom:16px; }
+    .card h2 { margin:0 0 12px; font-size:18px; }
+    label { display:block; font-size:13px; color:var(--muted); margin:10px 0 6px; }
+    input, select, textarea { width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:#0d1218; color:var(--text); }
+    textarea { min-height:72px; font-family:Consolas, monospace; font-size:13px; }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media (max-width:720px){ .row { grid-template-columns:1fr; } }
+    .pill { display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; background:#243044; color:var(--muted); }
+    .pill.ok { background:#143522; color:#86efac; }
+    .pill.warn { background:#3b2a10; color:#fcd34d; }
+    button { cursor:pointer; border:0; border-radius:10px; padding:10px 14px; font-weight:600; }
+    .btn { background:var(--accent); color:white; }
+    .btn.secondary { background:#243044; color:var(--text); }
+    .btn.danger { background:#7f1d1d; color:#fecaca; }
+    .actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
+    .copybox { display:flex; gap:8px; align-items:center; }
+    .copybox input { flex:1; }
+    .hint { color:var(--muted); font-size:13px; margin-top:8px; }
+    .steps { margin:12px 0 0; padding-left:0; list-style:none; counter-reset: step; }
+    .steps li { position:relative; padding:10px 0 10px 36px; border-top:1px solid var(--line); color:var(--text); font-size:14px; }
+    .steps li:first-child { border-top:0; }
+    .steps li::before {
+      counter-increment: step; content: counter(step);
+      position:absolute; left:0; top:10px; width:24px; height:24px; border-radius:999px;
+      background:#243044; color:var(--muted); font-size:12px; font-weight:700;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .steps code, .mono { font-family:Consolas, monospace; font-size:13px; background:#0d1218; padding:2px 6px; border-radius:6px; }
+    .steps strong { color:#fff; }
+    .note { margin-top:12px; padding:12px 14px; border-radius:10px; background:#121a24; border:1px solid var(--line); font-size:13px; color:var(--muted); }
+    .note ul { margin:8px 0 0; padding-left:18px; }
+    .note li { margin:4px 0; }
+    .devlist { margin-top:14px; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+    .devlist-head { display:flex; gap:10px; align-items:center; justify-content:space-between; padding:10px 12px; background:#121a24; border-bottom:1px solid var(--line); }
+    .devlist-head input { width:220px; max-width:100%; padding:8px 10px; }
+    .devlist-body { max-height:280px; overflow:auto; }
+    .devlist table { width:100%; border-collapse:collapse; font-size:13px; }
+    .devlist th, .devlist td { padding:8px 12px; text-align:left; border-top:1px solid var(--line); }
+    .devlist th { color:var(--muted); font-weight:600; position:sticky; top:0; background:#1a2332; }
+    .devlist tr:hover td { background:#121a24; }
+    .dot { display:inline-block; width:8px; height:8px; border-radius:999px; margin-right:6px; background:#64748b; }
+    .dot.on { background:#22c55e; }
+    .dot.off { background:#475569; }
+    .empty { padding:18px 14px; color:var(--muted); font-size:13px; }
+    .qrbox { margin-top:14px; padding:16px; border:1px solid var(--line); border-radius:12px; background:#121a24; display:none; flex-direction:column; align-items:center; gap:10px; }
+    .qrbox img { background:#fff; border-radius:8px; padding:8px; width:240px; height:240px; object-fit:contain; }
+    details.guide { margin-top:12px; border:1px solid var(--line); border-radius:10px; background:#121a24; padding:0 14px 12px; }
+    details.guide summary { cursor:pointer; padding:12px 0; font-weight:600; color:var(--text); list-style:none; }
+    details.guide summary::-webkit-details-marker { display:none; }
+    details.guide ol { margin:8px 0 0; padding-left:20px; color:var(--muted); font-size:13px; }
+    details.guide li { margin:6px 0; }
+    details.guide code { font-family:Consolas, monospace; background:#0d1218; padding:2px 6px; border-radius:6px; }
+    .split { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:4px; }
+    @media (max-width:860px){ .split { grid-template-columns:1fr; } }
+    .device { border:1px dashed var(--line); border-radius:12px; padding:12px; margin-top:10px; }
+    .device-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    #toast { position:fixed; right:20px; bottom:20px; background:#14532d; color:#dcfce7; padding:12px 16px; border-radius:10px; display:none; z-index:9; }
+    #toast.err { background:#7f1d1d; color:#fecaca; }
+    .title-row { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+    .pill.pending { background:#1e293b; color:#93c5fd; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title-row">
+      <h1>Dock Hub 配置向导</h1>
+      <span id="saveStatus" class="pill pending">同步中…</span>
+    </div>
+    <p class="sub">只在<strong>本机</strong>打开。修改后会<strong>自动保存并生效</strong>，无需点保存按钮。</p>
+
+    <div class="card">
+      <h2>① 复制到安卓（Helm 设置页）</h2>
+      <div class="split">
+        <div>
+          <p class="hint" style="margin-top:0">这三项对应安卓设置里的「地址 / 端口 / Token」。手机和电脑须在同一 Wi‑Fi 或局域网。</p>
+          <div class="row">
+            <div>
+              <label>地址（仅 IP，不要带端口）</label>
+              <div class="copybox"><input id="lanIp" readonly /><button class="btn secondary" type="button" onclick="copy('lanIp')">复制</button></div>
+            </div>
+            <div>
+              <label>端口</label>
+              <div class="copybox"><input id="port" type="number" min="1" max="65535" /><button class="btn secondary" type="button" onclick="copy('port')">复制</button></div>
+            </div>
+          </div>
+          <label style="margin-top:12px">Token（保密，勿发给他人）</label>
+          <div class="copybox"><input id="token" /><button class="btn secondary" type="button" onclick="copy('token')">复制</button><button class="btn secondary" type="button" onclick="newToken()">重新生成</button></div>
+          <p class="hint">Hub 名称：<input id="name" style="margin-top:6px" placeholder="study" />（测试连接成功后会显示这个名字）</p>
+        </div>
+        <div>
+          <p class="hint" style="margin-top:0"><strong>安卓端怎么用</strong>（App 名：<strong>Helm</strong>）</p>
+          <ol class="steps">
+            <li>安装 APK：从 <a href="https://github.com/wxydejoy/Helm/releases" target="_blank" rel="noopener" style="color:#93c5fd">GitHub Release</a> 下载 <code>Helm-*.apk</code>，允许「安装未知应用」。</li>
+            <li>打开 Helm（横屏全屏）。未连 Hub 前是<strong>预览模式</strong>，数据是假的。</li>
+            <li>点主屏顶部<strong> PC 监控条</strong>（CPU / 内存那一行）进入<strong>设置</strong>。</li>
+            <li>填入：<br>
+              「地址」→ <code id="guideIp">…</code><br>
+              「端口」→ <code id="guidePort">17890</code><br>
+              「Token」→ 上面复制的 Token
+            </li>
+            <li>点<strong>测试连接</strong>。成功会提示「已连接 <span id="guideName">study</span>」并自动回到主屏。</li>
+            <li>回到主屏后应能看到真实温度、灯/开关和电脑监控；约每 3 秒刷新。</li>
+          </ol>
+          <div class="note">
+            <strong>连不上？</strong>
+            <ul>
+              <li>确认 Windows 上 Dock Hub 正在运行（托盘有图标）</li>
+              <li>手机和电脑是否同一局域网（不要一个 Wi‑Fi 一个有线不同网段）</li>
+              <li>Windows 防火墙放行 TCP <code id="guidePort2">17890</code>（Hub 日志里有命令）</li>
+              <li>Token 是否与上面完全一致（重新生成 Token 后安卓也要改）</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>② 米家登录 <span id="mijiaBadge" class="pill">检查中…</span> <span id="mijiaCount" class="pill" style="display:none"></span></h2>
+      <p class="hint">控制灯/插座/温度需要米家账号。点「扫码登录」，在本页扫二维码（不会跳转浏览器）。</p>
+      <div class="actions">
+        <button class="btn secondary" type="button" onclick="relogin()">扫码登录米家</button>
+        <button class="btn secondary" type="button" onclick="refresh(true)">刷新设备列表</button>
+      </div>
+      <div id="mijiaQrBox" class="qrbox">
+        <img id="mijiaQrImg" alt="米家登录二维码" />
+        <p id="mijiaQrHint" class="hint" style="margin:0;text-align:center"></p>
+      </div>
+      <div class="devlist" id="mijiaDeviceList">
+        <div class="devlist-head">
+          <span id="mijiaListTitle">米家设备</span>
+          <input id="mijiaFilter" type="search" placeholder="搜索设备名…" oninput="renderMijiaList()" />
+        </div>
+        <div class="devlist-body" id="mijiaListBody">
+          <div class="empty">正在加载…</div>
+        </div>
+      </div>
+      <p class="hint" id="mijiaListHint"></p>
+    </div>
+
+    <div class="card">
+      <h2>③ 主屏温度（可选）</h2>
+      <div class="row">
+        <div>
+          <label>显示名称（安卓上看到的）</label>
+          <input id="tempName" placeholder="卧室" />
+        </div>
+        <div>
+          <label>米家设备</label>
+          <select id="tempMijia"><option value="">不显示温度</option></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>④ 主屏控件</h2>
+      <p class="hint">顺序就是安卓上的显示顺序。灯/开关从米家设备里选；启动项填本机 exe 路径（不会发给手机）。</p>
+      <div id="devices"></div>
+      <div class="actions">
+        <button class="btn secondary" type="button" onclick="addDevice('light')">+ 灯</button>
+        <button class="btn secondary" type="button" onclick="addDevice('switch')">+ 开关</button>
+        <button class="btn secondary" type="button" onclick="addDevice('action')">+ 启动程序</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>⑤ 电脑监控</h2>
+      <label><input id="pcEnabled" type="checkbox" /> 在安卓显示 CPU / 内存 / GPU</label>
+      <p class="hint">不装额外软件也能显示 <strong>CPU / 内存占用</strong>；有 NVIDIA 显卡还会显示 GPU。若要显示 <strong>CPU 温度</strong>，需要下面两项。</p>
+      <details class="guide" open>
+        <summary>CPU 温度：PawnIO 是什么？怎么装？</summary>
+        <p class="hint" style="margin-top:0">
+          <strong>PawnIO</strong> 是 Windows 上的一个小驱动，让普通程序能读到 CPU 温度传感器。
+          Hub 通过它把温度发给安卓；<strong>不装也不影响</strong>开关灯、启动程序等其他功能，只是主屏上没有 CPU 温度数字。
+        </p>
+        <p class="hint"><strong>还需要：</strong>Dock Hub 必须<strong>以管理员身份运行</strong>（右键 exe → 以管理员身份运行，或用 <code>run-admin.ps1</code>）。</p>
+        <ol>
+          <li>右键「终端 / PowerShell」→ <strong>以管理员身份运行</strong></li>
+          <li>执行安装命令（推荐）：<br><code>winget install -e --id namazso.PawnIO</code></li>
+          <li>没有 winget 时：打开 <a href="https://github.com/namazso/PawnIO/releases" target="_blank" rel="noopener" style="color:#93c5fd">GitHub Release</a> 或 <a href="https://pawnio.eu/" target="_blank" rel="noopener" style="color:#93c5fd">pawnio.eu</a> 下载安装包，双击安装</li>
+          <li>装完后<strong>退出 Hub 托盘</strong>，再<strong>以管理员身份</strong>重新启动 Dock Hub</li>
+          <li>安卓主屏 PC 监控条里应出现 CPU 温度；若没有，看日志 <code>%USERPROFILE%\.config\dock-hub\hub.log</code></li>
+        </ol>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>⑥ 安卓可选设置</h2>
+      <p class="hint" style="margin-top:0">都在 Helm 的<strong>设置页</strong>（同样点顶部 PC 监控条进入）：</p>
+      <ul class="hint" style="padding-left:18px; margin-top:8px">
+        <li><strong>视频背景</strong>：选本地横屏视频，循环静音播放</li>
+        <li><strong>方块样式 / 字体</strong>：调整主屏磁贴外观和时钟字号</li>
+        <li><strong>插电亮屏、拔电熄屏</strong>：需授予设备管理员（仅用于锁屏）</li>
+        <li><strong>媒体控制</strong>（右侧上一首 / 播放 / 下一首）：需在系统里开启 Helm 的<strong>通知使用权</strong></li>
+      </ul>
+    </div>
+  </div>
+  <div id="toast"></div>
+
+  <script>
+    let state = { mijia_devices: [], devices: [] };
+    let loading = true;
+    let saveTimer = null;
+    let saveInFlight = false;
+    let saveQueued = false;
+    let mijiaPollTimer = null;
+    const icons = ["steam","cursor","computer","chrome","vscode","terminal","folder","music"];
+
+    function setSaveStatus(text, kind='pending') {
+      const el = document.getElementById('saveStatus');
+      el.textContent = text;
+      el.className = 'pill' + (kind === 'ok' ? ' ok' : kind === 'err' ? ' warn' : ' pending');
+    }
+    function collectPayload() {
+      const body = {
+        name: document.getElementById('name').value.trim() || 'study',
+        port: +document.getElementById('port').value || 17890,
+        token: document.getElementById('token').value.trim(),
+        pc: { enabled: document.getElementById('pcEnabled').checked, sample_ms: 1000, cpu_temp: true, gpu: true },
+        devices: state.devices,
+      };
+      const tm = document.getElementById('tempMijia').value;
+      const tn = document.getElementById('tempName').value.trim();
+      if (tm) body.temperature = { id: slug(tn||tm), name: tn||tm, mijia_name: tm, celsius_prop: 'temperature', humidity_prop: 'humidity' };
+      else body.temperature = null;
+      return body;
+    }
+    function scheduleSave() {
+      if (loading) return;
+      setSaveStatus('待保存…', 'pending');
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => flushSave(), 600);
+    }
+    async function flushSave() {
+      if (loading) return;
+      if (saveInFlight) { saveQueued = true; return; }
+      saveInFlight = true;
+      setSaveStatus('保存中…', 'pending');
+      try {
+        const r = await fetch('/setup/api/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(collectPayload()),
+        });
+        const data = await r.json();
+        if (!r.ok || data.ok === false) throw new Error(data.message || '保存失败');
+        setSaveStatus('已自动保存', 'ok');
+        if (data.port_changed) toast('端口已改，请退出 Hub 后重新启动', true);
+      } catch (err) {
+        setSaveStatus(err.message || '保存失败', 'err');
+        toast(err.message || '保存失败', true);
+      } finally {
+        saveInFlight = false;
+        if (saveQueued) { saveQueued = false; scheduleSave(); }
+      }
+    }
+
+    function toast(msg, err=false) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.className = err ? 'err' : '';
+      el.style.display = 'block';
+      setTimeout(() => el.style.display = 'none', 3200);
+    }
+    function copy(id) {
+      const el = document.getElementById(id);
+      el.select();
+      document.execCommand('copy');
+      toast('已复制');
+    }
+    function slug(s) {
+      return (s || 'item').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'item';
+    }
+    function esc(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    }
+    function renderMijiaList() {
+      const body = document.getElementById('mijiaListBody');
+      const hint = document.getElementById('mijiaListHint');
+      const countEl = document.getElementById('mijiaCount');
+      const filter = (document.getElementById('mijiaFilter').value || '').trim().toLowerCase();
+      const list = state.mijia_devices || [];
+      if (!list.length) {
+        body.innerHTML = '<div class="empty">暂无设备。请先点「扫码登录米家」，扫完码后再点「刷新设备列表」。</div>';
+        countEl.style.display = 'none';
+        hint.textContent = state.mijia_devices_error || (state.mijia_status === 'ok' ? '已登录但未拉到设备，请再点刷新。' : '尚未登录米家。');
+        return;
+      }
+      const filtered = filter ? list.filter(d => (d.name||'').toLowerCase().includes(filter) || (d.model||'').toLowerCase().includes(filter)) : list;
+      countEl.style.display = 'inline-block';
+      countEl.textContent = `${list.length} 个设备`;
+      document.getElementById('mijiaListTitle').textContent = filter ? `米家设备（${filtered.length}/${list.length}）` : `米家设备（${list.length}）`;
+      if (!filtered.length) {
+        body.innerHTML = '<div class="empty">没有匹配的设备，换个关键词试试。</div>';
+      } else {
+        body.innerHTML = `<table><thead><tr><th>名称</th><th>型号</th><th>状态</th></tr></thead><tbody>${
+          filtered.map(d => {
+            const online = d.online === true || d.online === 'true';
+            return `<tr><td>${esc(d.name)}</td><td><code>${esc(d.model)}</code></td><td><span class="dot ${online?'on':'off'}"></span>${online?'在线':'离线'}</td></tr>`;
+          }).join('')
+        }</tbody></table>`;
+      }
+      hint.textContent = '下面 ③④ 的下拉框里选同名设备即可；名称必须与米家 App 里完全一致。';
+    }
+    function mijiaOptions(selected='') {
+      let html = '<option value="">请选择</option>';
+      for (const d of state.mijia_devices) {
+        const n = d.name || '';
+        html += `<option value="${n.replace(/"/g,'&quot;')}" ${n===selected?'selected':''}>${n}</option>`;
+      }
+      return html;
+    }
+    function renderDevices() {
+      const root = document.getElementById('devices');
+      root.innerHTML = '';
+      state.devices.forEach((d, i) => {
+        const box = document.createElement('div');
+        box.className = 'device';
+        const typeLabel = {light:'灯', switch:'开关', action:'启动'}[d.type] || d.type;
+        box.innerHTML = `<div class="device-head"><strong>${typeLabel}</strong><button class="btn danger" type="button" data-i="${i}">删除</button></div>`;
+        box.querySelector('button').onclick = () => { state.devices.splice(i,1); renderDevices(); scheduleSave(); };
+        if (d.type === 'action') {
+          box.innerHTML += `
+            <label>显示名称</label><input data-k="name" data-i="${i}" value="${d.name||''}" />
+            <div class="row"><div><label>图标</label><select data-k="icon" data-i="${i}">${icons.map(x=>`<option ${d.icon===x?'selected':''}>${x}</option>`).join('')}</select></div>
+            <div><label>程序 id</label><input data-k="id" data-i="${i}" value="${d.id||''}" /></div></div>
+            <label>本机程序路径 (.exe)</label><input data-k="program" data-i="${i}" value="${(d.run&&d.run.program)||d.program||''}" />`;
+        } else {
+          box.innerHTML += `
+            <div class="row"><div><label>显示名称</label><input data-k="name" data-i="${i}" value="${d.name||''}" /></div>
+            <div><label>id</label><input data-k="id" data-i="${i}" value="${d.id||''}" /></div></div>
+            <label>米家设备名</label><select data-k="mijia_name" data-i="${i}">${mijiaOptions(d.mijia_name||'')}</select>`;
+        }
+        root.appendChild(box);
+      });
+      root.querySelectorAll('input,select').forEach(el => {
+        el.oninput = el.onchange = () => {
+          const i = +el.dataset.i, k = el.dataset.k;
+          const d = state.devices[i];
+          if (k === 'program') {
+            d.run = d.run || {}; d.run.program = el.value; d.run.args = d.run.args || []; d.run.wait = false;
+          } else { d[k] = el.value; if (k==='name' && !d.id) d.id = slug(el.value); }
+          scheduleSave();
+        };
+      });
+    }
+    function addDevice(type) {
+      state.devices.push(type==='action' ? {id:'app', name:'程序', type, icon:'computer', run:{program:'', args:[], wait:false}} : {id:'dev', name:'设备', type, mijia_name:'', on_prop:'on'});
+      renderDevices();
+      scheduleSave();
+    }
+    function updateAndroidGuide() {
+      const ip = document.getElementById('lanIp').value || '192.168.x.x';
+      const port = document.getElementById('port').value || '17890';
+      const hubName = document.getElementById('name').value.trim() || 'study';
+      document.getElementById('guideIp').textContent = ip;
+      document.getElementById('guidePort').textContent = port;
+      document.getElementById('guidePort2').textContent = port;
+      document.getElementById('guideName').textContent = hubName;
+    }
+    function fillForm(data) {
+      loading = true;
+      document.getElementById('lanIp').value = (data.lan_ips && data.lan_ips[0]) || '127.0.0.1';
+      document.getElementById('port').value = data.config.port || 17890;
+      document.getElementById('token').value = data.config.token || '';
+      document.getElementById('name').value = data.config.name || 'study';
+      document.getElementById('pcEnabled').checked = !!(data.config.pc && data.config.pc.enabled !== false);
+      const t = data.config.temperature;
+      document.getElementById('tempName').value = t ? t.name : '';
+      document.getElementById('tempMijia').innerHTML = '<option value="">不显示温度</option>' +
+        state.mijia_devices.map(d=>`<option value="${(d.name||'').replace(/"/g,'&quot;')}" ${t&&t.mijia_name===d.name?'selected':''}>${d.name||''}</option>`).join('');
+      state.devices = JSON.parse(JSON.stringify(data.config.devices || []));
+      renderDevices();
+      updateAndroidGuide();
+      renderMijiaList();
+      const badge = document.getElementById('mijiaBadge');
+      if (data.mijia === 'ok') { badge.textContent = '已登录'; badge.className = 'pill ok'; }
+      else { badge.textContent = data.mijia_message || '未登录'; badge.className = 'pill warn'; }
+      loading = false;
+      updateMijiaQr(data.mijia_login);
+    }
+    function stopMijiaPoll() {
+      if (mijiaPollTimer) { clearInterval(mijiaPollTimer); mijiaPollTimer = null; }
+    }
+    function updateMijiaQr(login) {
+      const box = document.getElementById('mijiaQrBox');
+      const img = document.getElementById('mijiaQrImg');
+      const hint = document.getElementById('mijiaQrHint');
+      if (!login || login.phase === 'idle' || login.phase === 'done') {
+        box.style.display = 'none';
+        return;
+      }
+      box.style.display = 'flex';
+      if (login.qr_url) img.src = login.qr_url;
+      else img.removeAttribute('src');
+      hint.textContent = login.message || '请用米家 App 扫码';
+    }
+    async function pollMijiaLoginOnce() {
+      const r = await fetch('/setup/api/mijia-login/status');
+      const login = await r.json();
+      updateMijiaQr(login);
+      if (login.phase === 'done') {
+        stopMijiaPoll();
+        await refresh(true);
+        toast('米家登录成功');
+        return true;
+      }
+      if (login.phase === 'error') {
+        stopMijiaPoll();
+        toast(login.message || '登录失败', true);
+        return true;
+      }
+      return false;
+    }
+    function startMijiaPoll() {
+      if (mijiaPollTimer) return;
+      mijiaPollTimer = setInterval(async () => { await pollMijiaLoginOnce(); }, 2000);
+    }
+    async function refresh(showToast=false) {
+      loading = true;
+      setSaveStatus('同步中…', 'pending');
+      const r = await fetch('/setup/api/state');
+      const data = await r.json();
+      if (!r.ok) {
+        loading = false;
+        setSaveStatus('加载失败', 'err');
+        toast(data.message || '加载失败', true);
+        return;
+      }
+      state.mijia_devices = data.mijia_devices || [];
+      state.mijia_devices_error = data.mijia_devices_error || '';
+      state.mijia_status = data.mijia;
+      fillForm(data);
+      setSaveStatus('已同步', 'ok');
+      if (data.mijia_login && (data.mijia_login.phase === 'qr' || data.mijia_login.phase === 'starting')) {
+        updateMijiaQr(data.mijia_login);
+        startMijiaPoll();
+      }
+      if (showToast && state.mijia_devices.length) toast(`已加载 ${state.mijia_devices.length} 个米家设备`);
+    }
+    function newToken() {
+      const bytes = crypto.getRandomValues(new Uint8Array(24));
+      document.getElementById('token').value = btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+      scheduleSave();
+    }
+    ['port','name','token','tempName','pcEnabled'].forEach(id => {
+      const el = document.getElementById(id);
+      el.addEventListener('input', () => { if (id === 'port' || id === 'name') updateAndroidGuide(); scheduleSave(); });
+      el.addEventListener('change', () => { if (id === 'port' || id === 'name') updateAndroidGuide(); scheduleSave(); });
+    });
+    document.getElementById('tempMijia').addEventListener('change', scheduleSave);
+    async function relogin() {
+      stopMijiaPoll();
+      updateMijiaQr({ phase: 'starting', message: '正在获取二维码…' });
+      const r = await fetch('/setup/api/mijia-login/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true }),
+      });
+      const login = await r.json();
+      updateMijiaQr(login);
+      startMijiaPoll();
+    }
+    refresh(false);
+  </script>
+</body>
+</html>

@@ -81,7 +81,7 @@ uv run dock-hub --login    # 米家过期时重新扫码
 
 配置：`%USERPROFILE%\.config\dock-hub\hub.yaml`（token、设备白名单、本机程序路径）。
 
-防火墙放行入站 **TCP 17890**；CPU 温度需 **PawnIO** + 管理员权限。
+防火墙放行入站 **TCP 17890**；CPU 温度需 **PawnIO**（可选，见 [hub/README.md](hub/README.md#pawnio-cpu-温度可选)）+ 管理员权限。
 
 ## 联机速查
 

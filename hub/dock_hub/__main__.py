@@ -25,7 +25,7 @@ def _attach_background_log() -> None:
 # pythonw / 无控制台 exe 下 stdout 可能是 None；mijiaAPI import 会调 isatty()
 _attach_background_log()
 
-from dock_hub.config import load_config
+from dock_hub.config import ensure_config_file, load_config
 from dock_hub.server import lan_ips, serve
 from dock_hub.service import DockHub
 
@@ -71,7 +71,10 @@ def _run(argv: list[str] | None) -> int:
         return _dump_device(args.dump_device)
 
     try:
-        config = load_config(args.config)
+        if args.config:
+            config = load_config(args.config)
+        else:
+            config = load_config(ensure_config_file(None))
     except Exception as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -102,11 +105,14 @@ def _force_login() -> int:
 
 
 def _run_with_tray(hub: DockHub, *, login_async: bool = False) -> int:
+    from dock_hub.setup_ui import open_setup_browser
     from dock_hub.tray import run_tray
 
     server = serve(hub, blocking=False)
     thread = threading.Thread(target=server.serve_forever, name="dock-http", daemon=True)
     thread.start()
+
+    threading.Timer(1.2, lambda: open_setup_browser(hub)).start()
 
     if login_async:
         print("正在检查米家登录（需要时会打开浏览器二维码）…", flush=True)

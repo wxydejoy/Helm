@@ -22,6 +22,7 @@ datas = [
     *collect_data_files("certifi"),
     (str(ASSETS / "icon.png"), "."),
     (str(ASSETS / "icon.ico"), "."),
+    (str(ASSETS / "setup.html"), "."),
     (str(ROOT / "hub.yaml.example"), "."),
 ]
 binaries = [*hm_binaries, *pn_binaries, *pystray_binaries]

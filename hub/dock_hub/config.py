@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -80,6 +81,30 @@ def config_search_paths(explicit: Path | None = None) -> list[Path]:
     home = Path.home() / ".config" / "dock-hub" / "hub.yaml"
     cwd = Path.cwd() / "hub.yaml"
     return [cwd, here, home]
+
+
+def default_config_path() -> Path:
+    return Path.home() / ".config" / "dock-hub" / "hub.yaml"
+
+
+def ensure_config_file(explicit: Path | None = None) -> Path:
+    """Create a minimal hub.yaml when missing so the wizard can finish setup."""
+    path = explicit or default_config_path()
+    if path.is_file():
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    save_config_raw(
+        {
+            "name": "study",
+            "host": "0.0.0.0",
+            "port": DEFAULT_PORT,
+            "token": secrets.token_urlsafe(32),
+            "pc": {"enabled": True, "sample_ms": 1000, "cpu_temp": True, "gpu": True},
+            "devices": [],
+        },
+        path,
+    )
+    return path
 
 
 def find_config_path(explicit: Path | None = None) -> Path:
@@ -251,3 +276,69 @@ def _prop_name(value: Any, default: str) -> str:
 def _check_id(ident: str) -> None:
     if not ID_RE.match(ident):
         raise ValueError(f"id 必须 URL 安全（字母数字 . _ -）：{ident}")
+
+
+def device_to_raw(device: DeviceConfig) -> dict[str, Any]:
+    raw: dict[str, Any] = {"id": device.id, "name": device.name, "type": device.type}
+    if device.icon:
+        raw["icon"] = device.icon
+    if device.is_action:
+        run: dict[str, Any] = {
+            "program": device.program or "",
+            "args": list(device.args),
+            "wait": device.wait,
+        }
+        if device.cwd:
+            run["cwd"] = device.cwd
+        if device.timeout_sec != 8.0:
+            run["timeout_sec"] = device.timeout_sec
+        raw["run"] = run
+        return raw
+    raw["mijia_name"] = device.mijia_name
+    if device.on_prop != "on":
+        raw["on_prop"] = device.on_prop
+    if device.brightness_prop:
+        raw["brightness_prop"] = device.brightness_prop
+    return raw
+
+
+def temperature_to_raw(temp: TemperatureConfig) -> dict[str, Any]:
+    raw: dict[str, Any] = {
+        "id": temp.id,
+        "name": temp.name,
+        "mijia_name": temp.mijia_name,
+        "celsius_prop": temp.celsius_prop,
+    }
+    if temp.humidity_prop:
+        raw["humidity_prop"] = temp.humidity_prop
+    return raw
+
+
+def hub_config_to_raw(config: HubConfig) -> dict[str, Any]:
+    raw: dict[str, Any] = {
+        "name": config.name,
+        "host": config.host,
+        "port": config.port,
+        "token": config.token,
+        "devices": [device_to_raw(item) for item in config.devices],
+    }
+    if config.temperature:
+        raw["temperature"] = temperature_to_raw(config.temperature)
+    if config.pc is not None:
+        raw["pc"] = {
+            "enabled": config.pc.enabled,
+            "sample_ms": config.pc.sample_ms,
+            "cpu_temp": config.pc.cpu_temp,
+            "gpu": config.pc.gpu,
+        }
+    return raw
+
+
+def save_config_raw(raw: dict[str, Any], path: Path) -> HubConfig:
+    cfg = parse_config(raw, path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.safe_dump(raw, allow_unicode=True, sort_keys=False, default_flow_style=False),
+        encoding="utf-8",
+    )
+    return cfg

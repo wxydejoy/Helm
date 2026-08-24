@@ -18,7 +18,6 @@ from dock_hub.mijia_bridge import (
     error_message,
     is_offline,
     is_ok,
-    login_or_qr,
     lookup,
     query_params,
     read_batch,
@@ -35,7 +34,7 @@ class DockHub:
         self._device_locks: dict[str, threading.Lock] = {}
         self._device_locks_guard = threading.Lock()
         self._last_temp: dict[str, Any] | None = None
-        self._login_message = "请在运行 Hub 的电脑上扫码登录米家"
+        self._login_message = "请在配置向导中扫码登录米家"
         self._last_run_at: dict[str, str] = {}
         pc_cfg = config.pc or PcConfig(enabled=False)
         self.pc = PcSampler(
@@ -48,10 +47,22 @@ class DockHub:
 
     def login(self, *, force: bool = False) -> None:
         try:
-            api = login_or_qr(force=force)
+            from mijiaAPI import mijiaAPI
+
+            from dock_hub.mijia_bridge import clear_mijia_auth
+
+            if force:
+                clear_mijia_auth()
+                with self._mijia_lock:
+                    self.session = None
+            client = mijiaAPI()
+            if not client.available:
+                self.session = None
+                self._login_message = "请在配置向导中扫码登录米家"
+                return
             with self._mijia_lock:
-                self.session = bind_from_config(api, self.config.devices, self.config.temperature)
-            self._login_message = "请在运行 Hub 的电脑上扫码登录米家"
+                self.session = bind_from_config(client, self.config.devices, self.config.temperature)
+            self._login_message = "请在配置向导中扫码登录米家"
         except Exception as exc:
             self.session = None
             self._login_message = f"米家登录失败：{exc}"
@@ -60,11 +71,30 @@ class DockHub:
         self._print_bind_warnings()
 
     def relogin(self) -> None:
-        """清除本地米家缓存并重新扫码（供托盘菜单调用）。"""
-        print("正在重新登录米家…", flush=True)
+        """清除本地米家缓存（扫码在配置向导内完成）。"""
+        print("已清除米家登录，请在配置向导扫码。", flush=True)
+        from dock_hub.mijia_bridge import clear_mijia_auth
+
+        clear_mijia_auth()
         with self._mijia_lock:
             self.session = None
-        self.login(force=True)
+        self._login_message = "请在配置向导中扫码登录米家"
+
+    def reload_config(self, config: HubConfig) -> None:
+        """Apply hub.yaml changes without restarting the HTTP server."""
+        self.config = config
+        with self._mijia_lock:
+            self.session = None
+        pc_cfg = config.pc or PcConfig(enabled=False)
+        self.pc.stop()
+        self.pc = PcSampler(
+            enabled=pc_cfg.enabled,
+            sample_ms=pc_cfg.sample_ms,
+            cpu_temp=pc_cfg.cpu_temp,
+            gpu=pc_cfg.gpu,
+        )
+        self.pc.start()
+        threading.Thread(target=self.login, name="mijia-reload", daemon=True).start()
 
     def _print_bind_warnings(self) -> None:
         if self.session is None:

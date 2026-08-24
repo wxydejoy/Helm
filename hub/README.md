@@ -37,7 +37,7 @@ hub/
 - Windows 10/11
 - Python 3.10+（推荐 [uv](https://github.com/astral-sh/uv)）
 - 防火墙放行入站 **TCP 17890**
-- CPU 温度：安装 [PawnIO](https://github.com/namazso/PawnIO)（`winget install namazso.PawnIO`），并以**管理员**运行 Hub
+- CPU 温度（可选）：见下方 [PawnIO 安装](#pawnio-cpu-温度可选)
 
 ## 日常用法（推荐 exe）
 
@@ -49,8 +49,9 @@ powershell -ExecutionPolicy Bypass -File .\build-exe.ps1
 产物：`hub\dist\DockHub.exe`（无黑窗口 + 系统托盘）。
 
 1. **右键 → 以管理员身份运行**（或 `.\run-admin.ps1`，有 exe 时会优先启动它）
-2. 托盘菜单：打开 `/health`、日志、配置目录、退出
-3. 安卓填局域网 IP（本机常见 `10.83.22.31`）、端口 `17890`、yaml 里的 token
+2. 托盘右键：**打开配置向导** 或 **退出**（首次启动会自动打开向导）
+3. 配置向导地址：`http://127.0.0.1:17890/setup`（**仅本机**可访问）
+4. 安卓填向导里显示的 IP、端口 `17890`、Token
 
 重新打包前先退出托盘里的旧进程。
 
@@ -59,7 +60,8 @@ powershell -ExecutionPolicy Bypass -File .\build-exe.ps1
 ```powershell
 cd hub
 uv sync
-uv run dock-hub --init              # 首次：生成随机 token 的 hub.yaml
+uv run dock-hub                      # 首次会自动生成 hub.yaml 并打开配置向导
+uv run dock-hub --init              # 仅命令行：生成随机 token 的 hub.yaml
 uv run dock-hub --list-devices      # 核对米家设备名
 uv run dock-hub --dump-device "卧室温湿度计"
 uv run dock-hub                     # 默认系统托盘
@@ -67,7 +69,7 @@ uv run dock-hub --no-tray           # 前台控制台，Ctrl+C 退出
 uv run dock-hub --login             # 强制重新扫码登录米家（打开浏览器二维码）后退出
 ```
 
-米家过期时：托盘点 **「重新登录米家」**，或运行 `--login`。用**米家 App**扫浏览器里的码；链接也在 `%USERPROFILE%\.config\dock-hub\mijia-login.txt`。
+米家过期时：在配置向导里点 **「扫码登录米家」**，或运行 `--login`（命令行仍会打开浏览器）。
 
 管理员无窗口（源码或 exe）：
 
@@ -75,13 +77,41 @@ uv run dock-hub --login             # 强制重新扫码登录米家（打开浏
 powershell -ExecutionPolicy Bypass -File .\run-admin.ps1
 ```
 
+### 配置向导（推荐小白）
+
+浏览器打开 `http://127.0.0.1:17890/setup`（托盘 → **打开配置向导**）。可图形化完成：
+
+1. 复制 **IP / Token** 到安卓
+2. 米家扫码登录
+3. 选温度源、灯/开关、启动程序
+4. 修改后**自动保存**（改端口后需重启 Hub）
+
+仍可直接编辑 `%USERPROFILE%\.config\dock-hub\hub.yaml`。
+
 ### 配置要点（`hub.yaml`）
 
 - `token`：安卓 Bearer；`--init` 已生成
 - `temperature`：只允许一个；没有就删整段
 - `devices`：`light` / `switch` 用 `mijia_name`；`action` 用本机 `run.program`（路径不发给手机）
 - `icon`：Remix 短名（如 `steam`、`cursor`、`computer`）；安卓据此画图标
-- `pc.enabled: true`：snapshot 带 CPU / 内存；有 NVIDIA 再带 GPU；CPU 温度需管理员 + PawnIO
+- `pc.enabled: true`：snapshot 带 CPU / 内存；有 NVIDIA 再带 GPU；CPU 温度需管理员 + PawnIO（见下）
+
+### PawnIO（CPU 温度，可选）
+
+**是什么：** [PawnIO](https://pawnio.eu/) 是 Windows 上的小型驱动，让程序能读取 CPU 温度传感器。Hub 用它把温度显示在安卓主屏；**不装也能正常用** Hub 的其他功能，只是没有 CPU 温度这一项。
+
+**还需要：** Dock Hub 必须以**管理员**运行（右键 `DockHub.exe` → 以管理员身份运行，或 `run-admin.ps1`）。
+
+**安装（任选一种）：**
+
+```powershell
+# 管理员 PowerShell / 终端
+winget install -e --id namazso.PawnIO
+```
+
+或从 [GitHub Release](https://github.com/namazso/PawnIO/releases) / [pawnio.eu](https://pawnio.eu/) 下载安装包手动安装。
+
+装完后退出 Hub，再**以管理员**重新启动。配置向导第 ⑤ 步也有同样说明。
 
 示例见 `hub.yaml.example`。
 

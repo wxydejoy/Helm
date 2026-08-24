@@ -56,6 +56,13 @@ def make_handler(hub: DockHub) -> type[BaseHTTPRequestHandler]:
             parsed = urlparse(self.path)
             path = parsed.path.rstrip("/") or "/"
             try:
+                if path.startswith("/setup"):
+                    from dock_hub import setup_ui
+
+                    setup_ui.ensure_local(self)
+                    if setup_ui.handle_setup_get(hub, path, self):
+                        return
+                    raise HubError("not_found", "未知接口")
                 if path == "/health":
                     self._json(200, hub.health())
                     return
@@ -71,6 +78,14 @@ def make_handler(hub: DockHub) -> type[BaseHTTPRequestHandler]:
             parsed = urlparse(self.path)
             path = parsed.path.rstrip("/") or "/"
             try:
+                if path.startswith("/setup"):
+                    from dock_hub import setup_ui
+
+                    setup_ui.ensure_local(self)
+                    body = self._read_json()
+                    if setup_ui.handle_setup_post(hub, path, body, self):
+                        return
+                    raise HubError("not_found", "未知接口")
                 prefix = "/v1/devices/"
                 suffix = "/command"
                 if not (path.startswith(prefix) and path.endswith(suffix)):
@@ -118,6 +133,17 @@ def make_handler(hub: DockHub) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(data)
 
+        def _html(self, status: int, payload: bytes, content_type: str) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def _bytes(self, status: int, payload: bytes, content_type: str) -> None:
+            self._html(status, payload, content_type)
+
     return Handler
 
 
@@ -128,6 +154,7 @@ def serve(hub: DockHub, *, blocking: bool = True) -> ThreadingHTTPServer:
     print(f"Dock Hub v1  http://{ips[0]}:{hub.config.port}", flush=True)
     for extra in ips[1:]:
         print(f"             http://{extra}:{hub.config.port}", flush=True)
+    print(f"配置向导     http://127.0.0.1:{hub.config.port}/setup  （仅本机）", flush=True)
     if hub.config.path:
         print(f"配置         {hub.config.path}", flush=True)
     print("Windows 防火墙请放行入站 TCP 17890：", flush=True)

@@ -1,4 +1,5 @@
 STATUS_BY_CODE = {
+    "forbidden": 403,
     "unauthorized": 401,
     "bad_request": 400,
     "unsupported": 400,

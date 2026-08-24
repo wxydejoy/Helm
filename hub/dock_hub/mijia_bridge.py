@@ -75,8 +75,13 @@ def clear_mijia_auth() -> None:
         AUTH_PATH.unlink()
 
 
-def login_or_qr(api: mijiaAPI | None = None, *, force: bool = False) -> mijiaAPI:
-    """登录米家。无控制台时会打开浏览器二维码图片，避免只写进 hub.log。"""
+def login_or_qr(
+    api: mijiaAPI | None = None,
+    *,
+    force: bool = False,
+    open_browser: bool = True,
+) -> mijiaAPI:
+    """登录米家。open_browser=False 时不弹浏览器（由配置向导内嵌二维码）。"""
     import webbrowser
 
     if force:
@@ -103,13 +108,17 @@ def login_or_qr(api: mijiaAPI | None = None, *, force: bool = False) -> mijiaAPI
         f"原始链接：{login_url}\n",
         encoding="utf-8",
     )
-    print("米家需要扫码登录。正在打开浏览器二维码…", flush=True)
-    print(f"若浏览器没弹：打开 {LOGIN_HINT_PATH}", flush=True)
-    print(f"二维码图片：{qr_url}", flush=True)
-    try:
-        webbrowser.open(qr_url)
-    except Exception as exc:
-        print(f"无法自动打开浏览器：{exc}", flush=True)
+    if open_browser:
+        print("米家需要扫码登录。正在打开浏览器二维码…", flush=True)
+        print(f"若浏览器没弹：打开 {LOGIN_HINT_PATH}", flush=True)
+        print(f"二维码图片：{qr_url}", flush=True)
+        try:
+            webbrowser.open(qr_url)
+        except Exception as exc:
+            print(f"无法自动打开浏览器：{exc}", flush=True)
+    else:
+        print("米家需要扫码登录。请打开配置向导扫码。", flush=True)
+        print(f"二维码链接：{LOGIN_HINT_PATH}", flush=True)
 
     # 有 TTY 时再打 ASCII，方便 --no-tray 控制台扫
     stdout = getattr(__import__("sys"), "stdout", None)
