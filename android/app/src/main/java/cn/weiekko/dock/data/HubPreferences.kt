@@ -92,6 +92,10 @@ class HubPreferences(private val context: Context) {
         decodeWeather(prefs[KEY_WEATHER_CACHE].orEmpty())
     }
 
+    val wakeWordEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_WAKE_WORD] ?: true
+    }
+
     suspend fun save(connection: HubConnection) {
         context.dataStore.edit { prefs ->
             prefs[KEY_HOST] = connection.host.trim()
@@ -168,6 +172,12 @@ class HubPreferences(private val context: Context) {
         }
     }
 
+    suspend fun saveWakeWordEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_WAKE_WORD] = enabled
+        }
+    }
+
     companion object {
         private val KEY_HOST = stringPreferencesKey("host")
         private val KEY_PORT = intPreferencesKey("port")
@@ -188,6 +198,7 @@ class HubPreferences(private val context: Context) {
         private val KEY_WEATHER_ENABLED = booleanPreferencesKey("weather_enabled")
         private val KEY_WEATHER_CITY = stringPreferencesKey("weather_city")
         private val KEY_WEATHER_CACHE = stringPreferencesKey("weather_cache")
+        private val KEY_WAKE_WORD = booleanPreferencesKey("wake_word")
 
         const val DEFAULT_HUB_SLEEP_DELAY_SEC = 60
         const val DEFAULT_HUB_RECONNECT_SEC = 15

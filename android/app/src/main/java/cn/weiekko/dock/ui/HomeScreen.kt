@@ -1,6 +1,11 @@
 package cn.weiekko.dock.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -430,13 +435,22 @@ fun HomeScreen(
                 }
             }
 
-            if (state.hubSleeping) {
+            if (state.hubSleeping && !state.voiceListening) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(Color.Black)
                         .zIndex(20f)
                         .pointerInput(Unit) {},
+                )
+            }
+
+            if (state.voiceListening) {
+                WakeListeningChip(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 22.dp)
+                        .zIndex(30f),
                 )
             }
         }
@@ -1194,6 +1208,52 @@ private fun WinTile(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun WakeListeningChip(modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val infinite = rememberInfiniteTransition(label = "wake")
+    val pulse = infinite.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulse",
+    )
+    Surface(
+        modifier = modifier,
+        color = Color(0xE6181818),
+        shape = RoundedCornerShape(28.dp),
+        shadowElevation = 8.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                repeat(3) { i ->
+                    val h = 8.dp + (10.dp * ((pulse.value + i * 0.22f) % 1f))
+                    Box(
+                        modifier = Modifier
+                            .width(4.dp)
+                            .height(h)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(colors.primary.copy(alpha = 0.45f + pulse.value * 0.55f)),
+                    )
+                }
+            }
+            Text(
+                "岸宝",
+                color = colors.onBackground,
+                fontWeight = FontWeight.Medium,
+                fontSize = 16.sp,
             )
         }
     }

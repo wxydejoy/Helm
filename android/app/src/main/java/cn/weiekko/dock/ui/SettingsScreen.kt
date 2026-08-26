@@ -89,6 +89,7 @@ fun SettingsScreen(
     onSetHubReconnect: (Int) -> Unit = {},
     onSetWeatherEnabled: (Boolean) -> Unit = {},
     onSetWeatherCity: (String) -> Unit = {},
+    onSetWakeWord: (Boolean) -> Unit = {},
     onEditLayout: () -> Unit = {},
     onSetModuleVisible: (DockModule, Boolean) -> Unit = { _, _ -> },
     onSetModuleChrome: (DockModule, Boolean) -> Unit = { _, _ -> },
@@ -753,6 +754,40 @@ fun SettingsScreen(
                         } else {
                             colors.onSurfaceVariant
                         },
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = colors.surface,
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("语音唤醒", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            if (state.wakeWordEnabled) {
+                                "已开。说「岸宝」会亮屏并进入聆听，全程在手机上离线识别。"
+                            } else {
+                                "已关。打开后会持续听唤醒词，需要麦克风权限。"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    Switch(
+                        checked = state.wakeWordEnabled,
+                        onCheckedChange = onSetWakeWord,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = colors.onPrimary,
+                            checkedTrackColor = colors.primary,
+                        ),
                     )
                 }
             }

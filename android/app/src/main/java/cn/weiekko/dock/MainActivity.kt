@@ -1,9 +1,11 @@
 package cn.weiekko.dock
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -11,6 +13,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -40,11 +43,21 @@ import cn.weiekko.dock.ui.DockTheme
 import cn.weiekko.dock.ui.DockViewModel
 import cn.weiekko.dock.ui.HomeScreen
 import cn.weiekko.dock.ui.SettingsScreen
+import cn.weiekko.dock.voice.WakeWordService
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val viewModel: DockViewModel by viewModels()
     private var powerReceiverRegistered = false
+    private val requestMic = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted && viewModel.ui.value.wakeWordEnabled) {
+            WakeWordService.start(this)
+        } else if (!granted) {
+            viewModel.setWakeWord(false)
+        }
+    }
     private val powerReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (!viewModel.ui.value.powerScreen) return
@@ -84,6 +97,10 @@ class MainActivity : ComponentActivity() {
                         exitHubSleep()
                         DockPower.wake(this@MainActivity)
                     }
+                    ScreenCommand.VoiceWake -> {
+                        exitHubSleep()
+                        DockPower.wake(this@MainActivity)
+                    }
                 }
             }
         }
@@ -105,6 +122,10 @@ class MainActivity : ComponentActivity() {
                         launchSingleTop = true
                     }
                 }
+            }
+            LaunchedEffect(state.prefsReady, state.wakeWordEnabled) {
+                if (!state.prefsReady) return@LaunchedEffect
+                syncWakeWord(state.wakeWordEnabled)
             }
             LaunchedEffect(state.powerScreen, state.hubSleeping) {
                 applyPowerState()
@@ -159,6 +180,7 @@ class MainActivity : ComponentActivity() {
                                     onSetHubReconnect = viewModel::setHubReconnect,
                                     onSetWeatherEnabled = viewModel::setWeatherEnabled,
                                     onSetWeatherCity = viewModel::setWeatherCity,
+                                    onSetWakeWord = viewModel::setWakeWord,
                                     onEditLayout = viewModel::enterEdit,
                                     onSetModuleVisible = viewModel::setModuleVisible,
                                     onSetModuleChrome = viewModel::setModuleChrome,
@@ -240,11 +262,33 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleWakeIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_WAKE_WORD, false) == true) {
+            viewModel.onWakeWord(intent.getStringExtra(EXTRA_KEYWORD).orEmpty())
+            exitHubSleep()
+            DockPower.wake(this)
+            return
+        }
         if (intent?.getBooleanExtra(EXTRA_HUB_WAKE, false) != true) return
         viewModel.onHubReachable()
         HubWatchService.stop(this)
         exitHubSleep()
         DockPower.wake(this)
+    }
+
+    private fun syncWakeWord(enabled: Boolean) {
+        if (!enabled) {
+            WakeWordService.stop(this)
+            return
+        }
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            WakeWordService.start(this)
+        } else {
+            requestMic.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -274,6 +318,8 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_PORT = "port"
         const val EXTRA_TOKEN = "token"
         const val EXTRA_HUB_WAKE = "hub_wake"
+        const val EXTRA_WAKE_WORD = "wake_word"
+        const val EXTRA_KEYWORD = "keyword"
 
         fun wakeIntent(context: Context): Intent {
             return Intent(context, MainActivity::class.java).apply {
@@ -283,6 +329,18 @@ class MainActivity : ComponentActivity() {
                         Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
                 )
                 putExtra(EXTRA_HUB_WAKE, true)
+            }
+        }
+
+        fun wakeWordIntent(context: Context, keyword: String): Intent {
+            return Intent(context, MainActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
+                )
+                putExtra(EXTRA_WAKE_WORD, true)
+                putExtra(EXTRA_KEYWORD, keyword)
             }
         }
     }

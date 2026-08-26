@@ -80,6 +80,8 @@ data class DockUiState(
     val hubSleepDelaySec: Int = HubPreferences.DEFAULT_HUB_SLEEP_DELAY_SEC,
     val hubReconnectSec: Int = HubPreferences.DEFAULT_HUB_RECONNECT_SEC,
     val hubSleeping: Boolean = false,
+    val wakeWordEnabled: Boolean = true,
+    val voiceListening: Boolean = false,
     val layout: DockLayout = DockLayout(),
     val editing: Boolean = false,
     val selectedModule: DockModule? = null,
@@ -107,6 +109,7 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
 
     private var pollJob: Job? = null
     private var hubSleepJob: Job? = null
+    private var listeningJob: Job? = null
     private var disconnectedAt: Long? = null
     private var tileLookJob: Job? = null
     private var typeLookJob: Job? = null
@@ -150,6 +153,11 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             prefs.hubReconnectSec.collect { sec ->
                 _ui.update { it.copy(hubReconnectSec = sec) }
+            }
+        }
+        viewModelScope.launch {
+            prefs.wakeWordEnabled.collect { enabled ->
+                _ui.update { it.copy(wakeWordEnabled = enabled) }
             }
         }
         viewModelScope.launch {
@@ -297,6 +305,28 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         weatherCityJob = viewModelScope.launch {
             delay(400)
             prefs.saveWeatherCity(city)
+        }
+    }
+
+    fun setWakeWord(enabled: Boolean) {
+        _ui.update { it.copy(wakeWordEnabled = enabled, voiceListening = if (enabled) it.voiceListening else false) }
+        if (!enabled) listeningJob?.cancel()
+        viewModelScope.launch {
+            prefs.saveWakeWordEnabled(enabled)
+        }
+    }
+
+    fun onWakeWord(keyword: String = "岸宝") {
+        listeningJob?.cancel()
+        val wasSleeping = _ui.value.hubSleeping
+        _ui.update { it.copy(voiceListening = true, hubSleeping = false) }
+        if (wasSleeping || _ui.value.powerScreen) {
+            _screenCommands.tryEmit(ScreenCommand.VoiceWake)
+        }
+        listeningJob = viewModelScope.launch {
+            delay(VOICE_LISTEN_MS)
+            _ui.update { it.copy(voiceListening = false) }
+            if (disconnectedAt != null && _ui.value.powerScreen) scheduleHubSleep()
         }
     }
 
@@ -775,6 +805,7 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         const val WEATHER_RETRY_MS = 90 * 1000L
         const val VIDEO_OFF = "off"
         const val VIDEO_FILE_NAME = "1.mp4"
+        const val VOICE_LISTEN_MS = 6_000L
         val MEDIA_ACTIONS = setOf("toggle", "next", "previous")
     }
 

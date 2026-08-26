@@ -14,6 +14,13 @@ android {
         targetSdk = 36
         versionCode = 5
         versionName = "0.3.2"
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+    }
+
+    androidResources {
+        noCompress += "onnx"
     }
 
     buildTypes {
@@ -59,6 +66,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
+    implementation(files("libs/sherpa-onnx-1.13.6.aar"))
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver)
