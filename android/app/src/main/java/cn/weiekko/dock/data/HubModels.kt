@@ -138,6 +138,7 @@ fun HubDevice.toWinApp(): WinApp = WinApp(
     name = name,
     icon = icon,
     online = online,
+    running = on,
 )
 
 fun HubStatus.isLoginRequired(): Boolean = mijia == "login_required"

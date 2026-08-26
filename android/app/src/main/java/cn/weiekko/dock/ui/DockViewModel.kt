@@ -20,7 +20,9 @@ import cn.weiekko.dock.data.HubPreferences
 import cn.weiekko.dock.data.MediaInfo
 import cn.weiekko.dock.data.ModuleRect
 import cn.weiekko.dock.data.Snapshot
+import cn.weiekko.dock.data.WeatherClient
 import cn.weiekko.dock.data.WeatherInfo
+import cn.weiekko.dock.data.WeatherPlaces
 import cn.weiekko.dock.data.TileLook
 import cn.weiekko.dock.data.TypeLook
 import cn.weiekko.dock.data.WinApp
@@ -43,6 +45,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -62,7 +66,10 @@ data class DockUiState(
     val testing: Boolean = false,
     val loading: Boolean = false,
     val preview: Boolean = true,
-    val weather: WeatherInfo? = DemoSnapshot.weather,
+    val weather: WeatherInfo? = null,
+    val weatherEnabled: Boolean = true,
+    val weatherCity: String = HubPreferences.DEFAULT_WEATHER_CITY,
+    val weatherError: String? = null,
     val winApps: List<WinApp> = DemoSnapshot.winApps,
     val selectedWinId: String? = null,
     val media: MediaInfo = MediaInfo.phoneIdle(),
@@ -83,6 +90,7 @@ data class DockUiState(
 class DockViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = HubPreferences(application)
     private val client = HubClient()
+    private val weatherClient = WeatherClient()
     private val phoneMedia = PhoneMedia(application)
 
     private val _ui = MutableStateFlow(DockUiState())
@@ -103,6 +111,7 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
     private var tileLookJob: Job? = null
     private var typeLookJob: Job? = null
     private var layoutJob: Job? = null
+    private var weatherCityJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -149,6 +158,30 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
                     _ui.update { it.copy(layout = layout) }
                 }
             }
+        }
+        viewModelScope.launch {
+            combine(prefs.weatherEnabled, prefs.weatherCity) { enabled, city -> enabled to city }
+                .collectLatest { (enabled, city) ->
+                    _ui.update {
+                        it.copy(
+                            weatherEnabled = enabled,
+                            weatherCity = city,
+                            weather = if (enabled) it.weather else null,
+                            weatherError = if (enabled) it.weatherError else null,
+                        )
+                    }
+                    if (!enabled) return@collectLatest
+                    val cache = prefs.weatherCache.first()
+                    if (cache != null && cacheMatches(cache, city)) {
+                        _ui.update { it.copy(weather = cache, weatherError = null) }
+                    } else if (_ui.value.weather?.let { info -> cacheMatches(info, city) } != true) {
+                        _ui.update { it.copy(weather = null) }
+                    }
+                    while (isActive) {
+                        val ok = refreshWeather(city)
+                        delay(if (ok) WEATHER_OK_MS else WEATHER_RETRY_MS)
+                    }
+                }
         }
         viewModelScope.launch {
             prefs.connection.collect { connection ->
@@ -243,6 +276,27 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         _ui.update { it.copy(hubReconnectSec = next) }
         viewModelScope.launch {
             prefs.saveHubReconnectSec(next)
+        }
+    }
+
+    fun setWeatherEnabled(enabled: Boolean) {
+        _ui.update {
+            it.copy(
+                weatherEnabled = enabled,
+                weather = if (enabled) it.weather else null,
+                weatherError = if (enabled) it.weatherError else null,
+            )
+        }
+        viewModelScope.launch {
+            prefs.saveWeatherEnabled(enabled)
+        }
+    }
+
+    fun setWeatherCity(city: String) {
+        weatherCityJob?.cancel()
+        weatherCityJob = viewModelScope.launch {
+            delay(400)
+            prefs.saveWeatherCity(city)
         }
     }
 
@@ -471,11 +525,23 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
 
     fun tapWinApp(app: WinApp) {
         if (_ui.value.preview) {
-            _ui.update { it.copy(selectedWinId = if (it.selectedWinId == app.id) null else app.id) }
+            _ui.update {
+                it.copy(
+                    winApps = it.winApps.map { item ->
+                        if (item.id == app.id) item.copy(running = !item.running) else item
+                    },
+                )
+            }
             return
         }
         if (!app.online || app.id in _ui.value.busyIds) return
-        _ui.update { it.copy(selectedWinId = app.id) }
+        _ui.update {
+            it.copy(
+                winApps = it.winApps.map { item ->
+                    if (item.id == app.id) item.copy(running = true) else item
+                },
+            )
+        }
         sendCommand(app.id) {
             client.command(_ui.value.connection, app.id, run = true)
         }
@@ -546,12 +612,22 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
                 onSuccess = { updated ->
                     _ui.update { state ->
                         val snap = state.snapshot ?: return@update state.copy(busyIds = state.busyIds - deviceId)
+                        val devices = snap.devices.map { if (it.id == updated.id) updated else it }
+                        val fromSnap = devices
+                            .filter { it.deviceType() == DeviceType.Action }
+                            .map { it.toWinApp() }
+                        val winApps = fromSnap.map { app ->
+                            if (app.id == updated.id && updated.deviceType() == DeviceType.Action) {
+                                app.copy(running = true)
+                            } else {
+                                app
+                            }
+                        }
                         state.copy(
                             busyIds = state.busyIds - deviceId,
                             stale = false,
-                            snapshot = snap.copy(
-                                devices = snap.devices.map { if (it.id == updated.id) updated else it },
-                            ),
+                            snapshot = snap.copy(devices = devices),
+                            winApps = winApps.ifEmpty { state.winApps },
                         )
                     }
                 },
@@ -695,6 +771,8 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         const val POLL_MS = 20_000L
         const val POLL_PC_MS = 3_000L
         const val PHONE_MEDIA_MS = 1_000L
+        const val WEATHER_OK_MS = 20 * 60 * 1000L
+        const val WEATHER_RETRY_MS = 90 * 1000L
         const val VIDEO_OFF = "off"
         const val VIDEO_FILE_NAME = "1.mp4"
         val MEDIA_ACTIONS = setOf("toggle", "next", "previous")
@@ -708,6 +786,31 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
             VIDEO_FILE_NAME,
         )
         return if (file.isFile && file.length() > 0L) Uri.fromFile(file).toString() else null
+    }
+
+    private suspend fun refreshWeather(city: String): Boolean {
+        return try {
+            val info = withContext(Dispatchers.IO) { weatherClient.fetch(city) }
+            prefs.saveWeatherCache(info)
+            _ui.update { it.copy(weather = info, weatherError = null) }
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _ui.update { current ->
+                current.copy(
+                    weatherError = e.message ?: "天气获取失败",
+                    weather = current.weather?.takeIf { cacheMatches(it, city) },
+                )
+            }
+            false
+        }
+    }
+
+    private fun cacheMatches(info: WeatherInfo, city: String): Boolean {
+        val query = WeatherPlaces.normalize(city)
+        return WeatherPlaces.normalize(info.query).equals(query, ignoreCase = true) ||
+            WeatherPlaces.normalize(info.city).equals(query, ignoreCase = true)
     }
 }
 

@@ -6,7 +6,7 @@ from typing import Any
 from dock_hub import PROTOCOL
 from dock_hub.config import DeviceConfig, HubConfig, PcConfig
 from dock_hub.errors import HubError
-from dock_hub.launch import launch, launch_exists
+from dock_hub.launch import launch, launch_exists, launch_running, running_image_names
 from dock_hub.pc import PcSampler, utc_now
 from dock_hub.mijia_bridge import (
     BoundDevice,
@@ -114,7 +114,8 @@ class DockHub:
         }
 
     def snapshot(self) -> dict[str, Any]:
-        actions = [self._action_payload(cfg) for cfg in self.config.devices if cfg.is_action]
+        running = running_image_names()
+        actions = [self._action_payload(cfg, running) for cfg in self.config.devices if cfg.is_action]
         status, message = self._mijia_status()
         if status == "login_required":
             return self._snapshot_body(status, message, temperature=None, devices=actions)
@@ -141,11 +142,12 @@ class DockHub:
         temperature = self._temperature_from_map(mapped)
         mijia_devices = [self._device_from_map(bound, mapped) for bound in self.session.devices.values()]
         # keep config order: mix actions back in
+        running = running_image_names()
         by_id = {item["id"]: item for item in mijia_devices}
         devices = []
         for cfg in self.config.devices:
             if cfg.is_action:
-                devices.append(self._action_payload(cfg))
+                devices.append(self._action_payload(cfg, running))
             elif cfg.id in by_id:
                 devices.append(by_id[cfg.id])
         return self._snapshot_body("ok", None, temperature=temperature, devices=devices)
@@ -370,12 +372,13 @@ class DockHub:
             payload["brightness"] = brightness
         return payload
 
-    def _action_payload(self, cfg: DeviceConfig) -> dict[str, Any]:
+    def _action_payload(self, cfg: DeviceConfig, running: set[str] | None = None) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "id": cfg.id,
             "name": cfg.name,
             "type": "action",
             "online": launch_exists(cfg),
+            "on": launch_running(cfg, running),
         }
         if cfg.icon:
             payload["icon"] = cfg.icon

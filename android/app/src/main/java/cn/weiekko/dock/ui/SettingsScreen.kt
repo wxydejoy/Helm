@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import cn.weiekko.dock.data.DockFont
 import cn.weiekko.dock.data.DockModule
 import cn.weiekko.dock.data.HubConnection
+import cn.weiekko.dock.data.HubPreferences
 import cn.weiekko.dock.data.TileLook
 import cn.weiekko.dock.data.TileStyle
 import cn.weiekko.dock.data.TypeLook
@@ -86,6 +87,8 @@ fun SettingsScreen(
     onSetPowerScreen: (Boolean) -> Unit,
     onSetHubSleepDelay: (Int) -> Unit = {},
     onSetHubReconnect: (Int) -> Unit = {},
+    onSetWeatherEnabled: (Boolean) -> Unit = {},
+    onSetWeatherCity: (String) -> Unit = {},
     onEditLayout: () -> Unit = {},
     onSetModuleVisible: (DockModule, Boolean) -> Unit = { _, _ -> },
     onSetModuleChrome: (DockModule, Boolean) -> Unit = { _, _ -> },
@@ -97,6 +100,7 @@ fun SettingsScreen(
         mutableStateOf(state.connection.port.toString())
     }
     var token by rememberSaveable { mutableStateOf(state.connection.token) }
+    var weatherCity by rememberSaveable { mutableStateOf(state.weatherCity) }
     val context = LocalContext.current
     var adminGranted by remember { mutableStateOf(DockPower.isAdmin(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -140,11 +144,14 @@ fun SettingsScreen(
         cursorColor = colors.primary,
     )
 
-    LaunchedEffect(state.connection) {
+    LaunchedEffect(state.connection, state.weatherCity) {
         if (host.isEmpty()) host = state.connection.host
         if (token.isEmpty()) token = state.connection.token
         if (port == HubConnection.DEFAULT_PORT.toString() && state.connection.port != HubConnection.DEFAULT_PORT) {
             port = state.connection.port.toString()
+        }
+        if (weatherCity.isEmpty() && state.weatherCity.isNotEmpty()) {
+            weatherCity = state.weatherCity
         }
     }
 
@@ -689,6 +696,65 @@ fun SettingsScreen(
                         inactiveTrackColor = colors.outline,
                     ),
                 )
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = colors.surface,
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("天气", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "显示在日期右边。填城市名即可，也支持经纬度，例如 31.23,121.47。免费接口，不用密钥。",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    Switch(
+                        checked = state.weatherEnabled,
+                        onCheckedChange = onSetWeatherEnabled,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = colors.onPrimary,
+                            checkedTrackColor = colors.primary,
+                        ),
+                    )
+                }
+                if (state.weatherEnabled) {
+                    Spacer(Modifier.height(14.dp))
+                    OutlinedTextField(
+                        value = weatherCity,
+                        onValueChange = {
+                            weatherCity = it
+                            onSetWeatherCity(it)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("城市") },
+                        placeholder = { Text(HubPreferences.DEFAULT_WEATHER_CITY) },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.small,
+                        colors = fieldColors,
+                    )
+                    val weatherHint = state.weather?.clockLine()
+                        ?: state.weatherError
+                        ?: "正在获取…"
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        weatherHint,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (state.weatherError != null && state.weather == null) {
+                            colors.error
+                        } else {
+                            colors.onSurfaceVariant
+                        },
+                    )
+                }
             }
         }
         Spacer(Modifier.height(20.dp))

@@ -366,6 +366,7 @@ Hub 可选注册 mDNS，方便以后自动发现：
 | `media` | 未在配置中开启时为 `null`；开启后见 §5.4 |
 | `devices` | 只包含配置白名单；顺序与配置文件一致（安卓按此顺序画按钮 / logo） |
 | `devices[].online` | `switch` / `light`：`false` 时仍返回上次 `on` / `brightness`（若有），按钮禁用。`action`：配置的程序/脚本文件不存在时为 `false`，logo 禁用 |
+| `devices[].on` | `switch` / `light`：开关状态。`action`：对应进程是否正在运行（默认看 exe 文件名；可用配置 `process` 覆盖） |
 | `devices[].icon` | 仅 `action`。短名；安卓 Remix Icon 映射见 §5.1。没有或不认识则画名称首字 |
 | `devices[].last_run_at` | 仅 `action`，可选。上次成功拉起的 UTC 时间 |
 | 未登录时的 `devices` | 去掉所有米家设备，**保留**全部 `action` |
@@ -634,7 +635,7 @@ devices:
 
 | 协议动作 | Hub 应做 |
 |---|---|
-| snapshot 里的 `action` | 检查 `program`（若是文件路径）是否存在，决定 `online`；可选带短名 `icon` |
+| snapshot 里的 `action` | 检查 `program`（若是文件路径）是否存在，决定 `online`；检查对应进程是否在跑，决定 `on`；可选带短名 `icon` |
 | `POST .../command` + `{"run": true}` | `subprocess.Popen`（或等价）按配置拉起；默认不等待 |
 
 **Windows**

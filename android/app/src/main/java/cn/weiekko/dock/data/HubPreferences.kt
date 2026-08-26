@@ -80,6 +80,18 @@ class HubPreferences(private val context: Context) {
         decodeLayout(prefs[KEY_LAYOUT].orEmpty())
     }
 
+    val weatherEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_WEATHER_ENABLED] ?: true
+    }
+
+    val weatherCity: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[KEY_WEATHER_CITY] ?: DEFAULT_WEATHER_CITY
+    }
+
+    val weatherCache: Flow<WeatherInfo?> = context.dataStore.data.map { prefs ->
+        decodeWeather(prefs[KEY_WEATHER_CACHE].orEmpty())
+    }
+
     suspend fun save(connection: HubConnection) {
         context.dataStore.edit { prefs ->
             prefs[KEY_HOST] = connection.host.trim()
@@ -136,6 +148,26 @@ class HubPreferences(private val context: Context) {
         }
     }
 
+    suspend fun saveWeatherEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_WEATHER_ENABLED] = enabled
+        }
+    }
+
+    suspend fun saveWeatherCity(city: String) {
+        val next = city.trim()
+        if (next.isEmpty()) return
+        context.dataStore.edit { prefs ->
+            prefs[KEY_WEATHER_CITY] = next
+        }
+    }
+
+    suspend fun saveWeatherCache(info: WeatherInfo) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_WEATHER_CACHE] = LAYOUT_JSON.encodeToString(WeatherInfo.serializer(), info)
+        }
+    }
+
     companion object {
         private val KEY_HOST = stringPreferencesKey("host")
         private val KEY_PORT = intPreferencesKey("port")
@@ -153,9 +185,13 @@ class HubPreferences(private val context: Context) {
         private val KEY_HUB_SLEEP_DELAY_SEC = intPreferencesKey("hub_sleep_delay_sec")
         private val KEY_HUB_RECONNECT_SEC = intPreferencesKey("hub_reconnect_sec")
         private val KEY_LAYOUT = stringPreferencesKey("home_layout")
+        private val KEY_WEATHER_ENABLED = booleanPreferencesKey("weather_enabled")
+        private val KEY_WEATHER_CITY = stringPreferencesKey("weather_city")
+        private val KEY_WEATHER_CACHE = stringPreferencesKey("weather_cache")
 
         const val DEFAULT_HUB_SLEEP_DELAY_SEC = 60
         const val DEFAULT_HUB_RECONNECT_SEC = 15
+        const val DEFAULT_WEATHER_CITY = "上海"
 
         private val LAYOUT_JSON = Json {
             ignoreUnknownKeys = true
@@ -166,6 +202,11 @@ class HubPreferences(private val context: Context) {
             if (raw.isBlank()) return DockLayout()
             return runCatching { LAYOUT_JSON.decodeFromString(DockLayout.serializer(), raw) }
                 .getOrElse { DockLayout() }
+        }
+
+        private fun decodeWeather(raw: String): WeatherInfo? {
+            if (raw.isBlank()) return null
+            return runCatching { LAYOUT_JSON.decodeFromString(WeatherInfo.serializer(), raw) }.getOrNull()
         }
     }
 }

@@ -8,6 +8,21 @@ from pathlib import Path
 from dock_hub.config import DeviceConfig
 from dock_hub.errors import HubError
 
+GENERIC_PROCESS_NAMES = {
+    "cmd.exe",
+    "cmd",
+    "powershell.exe",
+    "powershell",
+    "pwsh.exe",
+    "pwsh",
+    "open",
+    "explorer.exe",
+    "python.exe",
+    "pythonw.exe",
+    "python",
+    "python3",
+}
+
 
 def expand_path(path: str) -> str:
     return os.path.expandvars(os.path.expanduser(path.strip()))
@@ -26,6 +41,43 @@ def launch_exists(cfg: DeviceConfig) -> bool:
     if candidate.exists():
         return True
     return shutil.which(expanded) is not None
+
+
+def process_names(cfg: DeviceConfig) -> list[str]:
+    if cfg.process:
+        return [name.strip().lower() for name in cfg.process if name.strip()]
+    program = cfg.program or ""
+    expanded = expand_path(program)
+    if is_url(expanded):
+        return []
+    name = Path(expanded).name.lower()
+    if not name or name in GENERIC_PROCESS_NAMES:
+        return []
+    return [name]
+
+
+def running_image_names() -> set[str]:
+    names: set[str] = set()
+    try:
+        import psutil
+    except Exception:
+        return names
+    try:
+        for proc in psutil.process_iter(["name"]):
+            raw = (proc.info or {}).get("name") or ""
+            if raw:
+                names.add(str(raw).lower())
+    except Exception:
+        return names
+    return names
+
+
+def launch_running(cfg: DeviceConfig, running: set[str] | None = None) -> bool:
+    wanted = process_names(cfg)
+    if not wanted:
+        return False
+    images = running if running is not None else running_image_names()
+    return any(name in images for name in wanted)
 
 
 def launch(cfg: DeviceConfig) -> None:

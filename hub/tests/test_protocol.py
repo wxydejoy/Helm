@@ -92,7 +92,7 @@ class ProtocolTest(unittest.TestCase):
         self.assertEqual(steam["type"], "action")
         self.assertTrue(steam["online"])
         self.assertEqual(steam["icon"], "steam")
-        self.assertNotIn("on", steam)
+        self.assertFalse(steam["on"])
         self.assertFalse(body["devices"][1]["online"])
         self.assertIn("pc", body)
         self.assertIsNone(body["pc"])

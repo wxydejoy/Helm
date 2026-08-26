@@ -1,21 +1,32 @@
 package cn.weiekko.dock.data
 
+import kotlinx.serialization.Serializable
+import java.util.Locale
+
+@Serializable
 data class WeatherInfo(
     val city: String,
     val celsius: Double,
     val condition: String,
-)
+    val query: String = "",
+) {
+    fun clockLine(): String {
+        val temp = String.format(Locale.US, "%.0f°", celsius)
+        return "$city  $temp  $condition"
+    }
+}
 
 data class WinApp(
     val id: String,
     val name: String,
     val icon: String? = null,
     val online: Boolean = true,
+    val running: Boolean = false,
 )
 
 object DemoSnapshot {
     val weather = WeatherInfo(
-        city = "室外",
+        city = "上海",
         celsius = 26.0,
         condition = "多云",
     )

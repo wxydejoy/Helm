@@ -207,7 +207,10 @@ fun HomeScreen(
                                 ),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
                                 Text(
                                     now.format(TimeFmt),
                                     fontSize = timeSp.sp,
@@ -222,15 +225,43 @@ fun HomeScreen(
                                         shadow = timeShadow,
                                     ),
                                 )
-                                Text(
-                                    now.format(DateFmt),
-                                    fontFamily = family,
-                                    fontSize = (type.chipSize + 1).sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color.White.copy(alpha = 0.86f),
-                                    maxLines = 1,
-                                    style = TextStyle(shadow = timeShadow),
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    Text(
+                                        now.format(DateFmt),
+                                        fontFamily = family,
+                                        fontSize = (type.chipSize + 1).sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color.White.copy(alpha = 0.86f),
+                                        maxLines = 1,
+                                        style = TextStyle(shadow = timeShadow),
+                                    )
+                                    val weather = state.weather
+                                    if (weather != null) {
+                                        Text(
+                                            "  ·  ",
+                                            fontFamily = family,
+                                            fontSize = (type.chipSize + 1).sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color.White.copy(alpha = 0.46f),
+                                            style = TextStyle(shadow = timeShadow),
+                                        )
+                                        Text(
+                                            weather.clockLine(),
+                                            fontFamily = family,
+                                            fontSize = (type.chipSize + 1).sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color.White.copy(alpha = 0.86f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false),
+                                            style = TextStyle(shadow = timeShadow),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -251,7 +282,7 @@ fun HomeScreen(
                         PlaceModule(DockModule.Win0, edit) {
                             WinTile(
                                 app = win0,
-                                selected = win0.id == state.selectedWinId,
+                                selected = win0.running,
                                 busy = win0.id in state.busyIds,
                                 interactive = !editing,
                                 onClick = { onWinClick(win0) },
@@ -267,7 +298,7 @@ fun HomeScreen(
                         PlaceModule(DockModule.Win1, edit) {
                             WinTile(
                                 app = win1,
-                                selected = win1.id == state.selectedWinId,
+                                selected = win1.running,
                                 busy = win1.id in state.busyIds,
                                 interactive = !editing,
                                 onClick = { onWinClick(win1) },
@@ -283,7 +314,7 @@ fun HomeScreen(
                         PlaceModule(DockModule.Win2, edit) {
                             WinTile(
                                 app = win2,
-                                selected = win2.id == state.selectedWinId,
+                                selected = win2.running,
                                 busy = win2.id in state.busyIds,
                                 interactive = !editing,
                                 onClick = { onWinClick(win2) },
@@ -1153,6 +1184,7 @@ private fun WinTile(
                 when {
                     busy -> "启动中"
                     !app.online -> "离线"
+                    app.running -> app.name
                     else -> app.name
                 },
                 color = Color.White,
@@ -1177,6 +1209,7 @@ private fun HomePreview() {
                 preview = true,
                 snapshot = DemoSnapshot.create(),
                 media = DemoSnapshot.media,
+                weather = DemoSnapshot.weather,
             ),
             onOpenSettings = {},
             onPower = { _, _ -> },

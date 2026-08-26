@@ -157,6 +157,8 @@ class MainActivity : ComponentActivity() {
                                     onSetPowerScreen = viewModel::setPowerScreen,
                                     onSetHubSleepDelay = viewModel::setHubSleepDelay,
                                     onSetHubReconnect = viewModel::setHubReconnect,
+                                    onSetWeatherEnabled = viewModel::setWeatherEnabled,
+                                    onSetWeatherCity = viewModel::setWeatherCity,
                                     onEditLayout = viewModel::enterEdit,
                                     onSetModuleVisible = viewModel::setModuleVisible,
                                     onSetModuleChrome = viewModel::setModuleChrome,

@@ -46,6 +46,7 @@ class DeviceConfig:
     cwd: str | None = None
     wait: bool = False
     timeout_sec: float = 8.0
+    process: list[str] = field(default_factory=list)
 
     @property
     def is_action(self) -> bool:
@@ -197,6 +198,7 @@ def _parse_device(raw: dict[str, Any]) -> DeviceConfig:
 
     if dtype == "action":
         program, args, cwd, wait, timeout_sec = _parse_run(ident, raw)
+        process = _parse_process(raw)
         return DeviceConfig(
             id=ident,
             name=name,
@@ -207,6 +209,7 @@ def _parse_device(raw: dict[str, Any]) -> DeviceConfig:
             cwd=cwd,
             wait=wait,
             timeout_sec=timeout_sec,
+            process=process,
         )
 
     if not mijia_name:
@@ -263,6 +266,24 @@ def _parse_run(ident: str, raw: dict[str, Any]) -> tuple[str, list[str], str | N
     return program, [str(x) for x in args_raw], cwd, wait, timeout_sec
 
 
+def _parse_process(raw: dict[str, Any]) -> list[str]:
+    run = raw.get("run")
+    source = None
+    if isinstance(run, dict) and run.get("process") is not None:
+        source = run.get("process")
+    elif raw.get("process") is not None:
+        source = raw.get("process")
+    if source is None:
+        return []
+    if isinstance(source, str):
+        items = [source]
+    elif isinstance(source, list):
+        items = source
+    else:
+        raise ValueError("process 必须是进程名或进程名列表")
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
 def _prop_name(value: Any, default: str) -> str:
     if value is True:
         return "on"
@@ -292,6 +313,8 @@ def device_to_raw(device: DeviceConfig) -> dict[str, Any]:
             run["cwd"] = device.cwd
         if device.timeout_sec != 8.0:
             run["timeout_sec"] = device.timeout_sec
+        if device.process:
+            run["process"] = list(device.process)
         raw["run"] = run
         return raw
     raw["mijia_name"] = device.mijia_name

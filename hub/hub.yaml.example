@@ -49,3 +49,5 @@ devices:
       args: []
       cwd: "C:\\Program Files (x86)\\Steam"
       wait: false
+      # 可选：用来判断是否在运行的进程名（默认用 exe 文件名）
+      # process: ["steam.exe"]
