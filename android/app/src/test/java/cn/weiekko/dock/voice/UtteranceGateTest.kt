@@ -25,8 +25,8 @@ class UtteranceGateTest {
         feed(gate, rms = 0.09f, ms = 240L)
         assertEquals(true, gate.heard)
         assertNull(gate.shouldStop(520L))
-        feed(gate, rms = 0.003f, ms = 2_500L)
-        assertEquals(UtteranceGate.StopReason.Tail, gate.shouldStop(3_200L))
+        feed(gate, rms = 0.003f, ms = 1_000L)
+        assertEquals(UtteranceGate.StopReason.Tail, gate.shouldStop(1_520L))
     }
 
     @Test
@@ -44,8 +44,8 @@ class UtteranceGateTest {
         val gate = UtteranceGate()
         feed(gate, rms = 0.004f, ms = 280L)
         gate.noteHeard()
-        feed(gate, rms = 0.003f, ms = 2_500L)
-        assertEquals(UtteranceGate.StopReason.Tail, gate.shouldStop(3_200L))
+        feed(gate, rms = 0.003f, ms = 1_300L)
+        assertEquals(UtteranceGate.StopReason.Tail, gate.shouldStop(1_580L))
     }
 
     @Test

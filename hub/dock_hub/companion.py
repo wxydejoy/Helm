@@ -97,23 +97,32 @@ class Companion:
             {"role": "user", "content": f"当前状态：\n{facts}\n\n漂泊者：{text}"},
         ]
         llm_at = time.monotonic()
+        cue_as_we_go = bool(self.config.tts_base_url) and not self.config.tts_deliver
         try:
-            raw = self._complete(messages)
+            if cue_as_we_go:
+                spoken = self._stream_and_cue(messages, turn, seq)
+            else:
+                spoken = _clean_reply(self._complete(messages))
         except HubError:
             _latency(turn, "ollama_error", ms=_ms(llm_at))
             raise
-        spoken = _clean_reply(raw)
         if not spoken:
             _latency(turn, "ollama_empty", ms=_ms(llm_at))
             raise HubError("companion_unavailable", "大脑没有说出话")
         _latency(turn, "ollama_done", ms=_ms(llm_at), chars=len(spoken))
         self._ready = True
         self._ready_at = time.monotonic()
-        with self._lock:
-            if seq != self._seq:
-                _latency(turn, "barge_in", ms=_ms(started))
-                return {"text": spoken, "audio_id": None}
-        audio_id = self._maybe_speak(spoken, turn)
+        audio_id = None
+        if not cue_as_we_go:
+            with self._lock:
+                if seq != self._seq:
+                    _latency(turn, "barge_in", ms=_ms(started))
+                    return {"text": spoken, "audio_id": None}
+            audio_id = self._maybe_speak(spoken, turn)
+        else:
+            with self._lock:
+                if seq != self._seq:
+                    _latency(turn, "barge_in", ms=_ms(started))
         _latency(turn, "chat_total", ms=_ms(started), audio=1 if audio_id else 0)
         return {"text": spoken, "audio_id": audio_id}
 
@@ -194,11 +203,79 @@ class Companion:
             return False
 
     def _complete(self, messages: list[dict[str, str]]) -> str:
+        body = self._chat_response(messages, stream=False)
+        message = body.get("message") if isinstance(body, dict) else None
+        if not isinstance(message, dict):
+            raise HubError("companion_unavailable", "大脑返回无法解析")
+        return str(message.get("content") or "")
+
+    def _stream_and_cue(self, messages: list[dict[str, str]], turn: str, seq: int) -> str:
         url = _join(self.config.llm_base_url, "/api/chat")
+        req = urllib.request.Request(
+            url,
+            data=self._chat_payload(messages, stream=True),
+            method="POST",
+            headers={"Content-Type": "application/json", "Accept": "application/x-ndjson"},
+        )
+        pieces: list[str] = []
+        buf = ""
+        first = True
+        try:
+            with urllib.request.urlopen(req, timeout=self.config.timeout_sec) as resp:
+                if not (200 <= resp.status < 300):
+                    raise HubError("companion_unavailable", "大脑拒绝请求")
+                for raw_line in resp:
+                    line = raw_line.decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
+                    if line.startswith("data:"):
+                        line = line[5:].strip()
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(obj, dict):
+                        continue
+                    if obj.get("done"):
+                        break
+                    message = obj.get("message")
+                    chunk = ""
+                    if isinstance(message, dict):
+                        chunk = str(message.get("content") or "")
+                    if not chunk:
+                        continue
+                    pieces.append(chunk)
+                    buf += chunk
+                    ready, buf = cut_sentences(buf)
+                    for sent in ready:
+                        spoken = _clean_reply(sent)
+                        if spoken and self._cue_sentence(spoken, turn, seq) and first:
+                            _latency(turn, "tts_first_sentence", chars=len(spoken))
+                            first = False
+        except TimeoutError as exc:
+            raise HubError("companion_unavailable", "大脑响应超时") from exc
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:200]
+            raise HubError("companion_unavailable", f"大脑拒绝请求：{exc.code} {detail}") from exc
+        except (urllib.error.URLError, OSError) as exc:
+            raise HubError("companion_unavailable", "连不上本地大脑") from exc
+        tail = _clean_reply(buf)
+        if tail and self._cue_sentence(tail, turn, seq) and first:
+            _latency(turn, "tts_first_sentence", chars=len(tail))
+        return _clean_reply("".join(pieces))
+
+    def _cue_sentence(self, spoken: str, turn: str, seq: int) -> bool:
+        with self._lock:
+            if seq != self._seq:
+                return False
+        self._speak(spoken, turn)
+        return True
+
+    def _chat_payload(self, messages: list[dict[str, str]], *, stream: bool) -> bytes:
         payload = {
             "model": self.config.llm_model,
             "messages": messages,
-            "stream": False,
+            "stream": stream,
             "think": False,
             "options": {
                 "num_ctx": self.config.num_ctx,
@@ -207,10 +284,13 @@ class Companion:
                 "presence_penalty": 0.0,
             },
         }
-        data = json.dumps(payload).encode("utf-8")
+        return json.dumps(payload).encode("utf-8")
+
+    def _chat_response(self, messages: list[dict[str, str]], *, stream: bool) -> dict[str, Any]:
+        url = _join(self.config.llm_base_url, "/api/chat")
         req = urllib.request.Request(
             url,
-            data=data,
+            data=self._chat_payload(messages, stream=stream),
             method="POST",
             headers={"Content-Type": "application/json", "Accept": "application/json"},
         )
@@ -228,10 +308,9 @@ class Companion:
             body = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise HubError("companion_unavailable", "大脑返回无法解析") from exc
-        message = body.get("message") if isinstance(body, dict) else None
-        if not isinstance(message, dict):
+        if not isinstance(body, dict):
             raise HubError("companion_unavailable", "大脑返回无法解析")
-        return str(message.get("content") or "")
+        return body
 
     def _ping_tts(self) -> bool:
         url = _join(self.config.tts_base_url or "", "/health")
@@ -328,6 +407,26 @@ def _clean_reply(raw: str) -> str:
     text = _ACTION_RE.sub("", text)
     text = re.sub(r"\n{2,}", "\n", text).strip()
     return text
+
+
+_SENTENCE_END = set("。！？")
+
+
+def cut_sentences(buf: str) -> tuple[list[str], str]:
+    ready: list[str] = []
+    start = 0
+    for i, ch in enumerate(buf):
+        if ch in _SENTENCE_END:
+            piece = buf[start : i + 1].strip()
+            if piece:
+                ready.append(piece)
+            start = i + 1
+        elif ch == "\n":
+            piece = buf[start:i].strip()
+            if piece:
+                ready.append(piece)
+            start = i + 1
+    return ready, buf[start:]
 
 
 def _turn_id(body: dict[str, Any]) -> str:

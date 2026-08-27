@@ -7,10 +7,10 @@ import kotlin.math.sqrt
  * sherpa 的 CTC 端点在这套模型上经常拖到上限才停，所以听感要靠这个。
  */
 internal class UtteranceGate(
-    private val endSilenceMs: Long = 2_400L,
+    private val endSilenceMs: Long = 1_000L,
     private val emptyMs: Long = 6_500L,
     private val maxMs: Long = 16_000L,
-    private val minTailMs: Long = 3_000L,
+    private val minTailMs: Long = 1_500L,
     private val minSpeechMs: Long = 140L,
     private val calibrateMs: Long = 280L,
 ) {

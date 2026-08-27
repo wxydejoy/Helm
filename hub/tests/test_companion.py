@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import tempfile
 import threading
@@ -11,7 +12,7 @@ from unittest.mock import patch
 from urllib.error import URLError
 from urllib.request import Request
 
-from dock_hub.companion import _clean_reply, facts_from_snapshot
+from dock_hub.companion import _clean_reply, cut_sentences, facts_from_snapshot
 from dock_hub.config import hub_config_to_raw, parse_config
 from dock_hub.server import make_handler
 from dock_hub.service import DockHub
@@ -30,6 +31,50 @@ class _FakeResp:
 
     def __exit__(self, *args: object) -> bool:
         return False
+
+
+class _FakeLineResp:
+    def __init__(self, raw: bytes, status: int = 200) -> None:
+        self.status = status
+        self._buf = io.BytesIO(raw)
+
+    def read(self) -> bytes:
+        return self._buf.read()
+
+    def __iter__(self) -> "_FakeLineResp":
+        self._buf.seek(0)
+        return self
+
+    def __next__(self) -> bytes:
+        line = self._buf.readline()
+        if not line:
+            raise StopIteration
+        return line
+
+    def __enter__(self) -> "_FakeLineResp":
+        return self
+
+    def __exit__(self, *args: object) -> bool:
+        return False
+
+
+def _ndjson_chat(content: str) -> _FakeLineResp:
+    blob = (
+        json.dumps({"message": {"content": content}, "done": False})
+        + "\n"
+        + json.dumps({"done": True})
+        + "\n"
+    )
+    return _FakeLineResp(blob.encode("utf-8"))
+
+
+def _chat_is_stream(req: Request) -> bool:
+    raw = req.data or b"{}"
+    try:
+        body = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    return bool(isinstance(body, dict) and body.get("stream"))
 
 
 class _FakeBytes:
@@ -53,6 +98,8 @@ def _fake_ollama(content: str = "晚上好，漂泊者。", wav: bytes | None = 
         if url.endswith("/api/tags"):
             return _FakeResp({"models": [{"name": "qwen3.5:4b"}]})
         if url.endswith("/api/chat"):
+            if _chat_is_stream(req):
+                return _ndjson_chat(content)
             return _FakeResp({"message": {"content": content}})
         if url.endswith("/health"):
             return _FakeResp({"ok": True, "ready": True, "service": "helm-companion-tts"})
@@ -92,6 +139,14 @@ class CompanionLogicTest(unittest.TestCase):
         self.assertIn("CPU 10%", facts)
         self.assertIn("台灯开", facts)
         self.assertNotIn("Steam", facts)
+
+    def test_cut_sentences_keeps_tail(self) -> None:
+        ready, rest = cut_sentences("晚上好。还")
+        self.assertEqual(ready, ["晚上好。"])
+        self.assertEqual(rest, "还")
+        ready, rest = cut_sentences("嗯。好的。尾")
+        self.assertEqual(ready, ["嗯。", "好的。"])
+        self.assertEqual(rest, "尾")
 
     def test_parse_and_dump_companion(self) -> None:
         cfg = parse_config(
@@ -388,7 +443,7 @@ class CompanionProtocolTest(unittest.TestCase):
                 return _FakeResp({"ok": True})
             if url.endswith("/api/chat"):
                 gate.wait(2)
-                return _FakeResp({"message": {"content": "晚上好，漂泊者。"}})
+                return _ndjson_chat("晚上好，漂泊者。")
             if url.endswith("/v1/speak"):
                 raise AssertionError("interrupted chat should not speak")
             raise AssertionError(url)
@@ -433,6 +488,53 @@ class CompanionProtocolTest(unittest.TestCase):
         self.assertEqual(result["body"]["text"], "晚上好，漂泊者。")
         self.assertIsNone(result["body"]["audio_id"])
         self.assertFalse(any(url.endswith("/v1/speak") for url in seen))
+
+    def test_stream_cues_each_sentence(self) -> None:
+        spoken: list[str] = []
+
+        def fake(req: Request, timeout: object = None):
+            url = req.get_full_url()
+            if url.endswith("/api/tags") or url.endswith("/health") or url.endswith("/v1/stop"):
+                return _FakeResp({"ok": True, "ready": True, "models": []})
+            if url.endswith("/api/chat"):
+                blob = (
+                    json.dumps({"message": {"content": "晚上好。"}, "done": False})
+                    + "\n"
+                    + json.dumps({"message": {"content": "还早。"}, "done": False})
+                    + "\n"
+                    + json.dumps({"done": True})
+                    + "\n"
+                )
+                return _FakeLineResp(blob.encode("utf-8"))
+            if url.endswith("/v1/speak"):
+                body = json.loads((req.data or b"{}").decode("utf-8"))
+                spoken.append(str(body.get("text") or ""))
+                return _FakeBytes(b"RIFF")
+            raise AssertionError(url)
+
+        self.hub.companion.configure(
+            parse_config(
+                {
+                    "name": "study",
+                    "token": "secret-token-value",
+                    "companion": {
+                        "enabled": True,
+                        "llm": {
+                            "base_url": "http://127.0.0.1:9",
+                            "model": "qwen3.5:4b",
+                            "timeout_sec": 2,
+                        },
+                        "tts": {"base_url": "http://127.0.0.1:9"},
+                    },
+                    "devices": [],
+                }
+            ).companion
+        )
+        with patch("dock_hub.companion.urllib.request.urlopen", fake):
+            status, body = self._request("POST", "/v1/companion/chat", {"text": "在吗。"})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["text"], "晚上好。还早。")
+        self.assertEqual(spoken, ["晚上好。", "还早。"])
 
 
 if __name__ == "__main__":

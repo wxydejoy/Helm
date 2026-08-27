@@ -53,7 +53,11 @@ powershell -ExecutionPolicy Bypass -File .\build-exe.ps1
 3. 配置向导地址：`http://127.0.0.1:17890/setup`（**仅本机**可访问）
 4. 安卓填向导里显示的 IP、端口 `17890`、Token
 
-重新打包前先退出托盘里的旧进程。
+重新打包前先退出托盘里的旧进程。改 `dock_hub/companion.py` 后必须重新打 exe：正在跑的是 `dist\DockHub.exe`，只拷 `.py` 不会生效。
+
+## 桌面伴侣
+
+默认 `companion.tts.deliver: false`：Hub 流式读 Ollama，**每写出一句就 cue Mini TTS**（`play_only`），`POST /v1/companion/chat` 仍等全文再返回给安卓字幕。打断走 `POST /v1/companion/stop`。说明见 [docs/companion.md](../docs/companion.md)。
 
 ## 源码开发
 

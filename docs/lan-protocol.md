@@ -543,7 +543,7 @@ Content-Type: application/json
 - companion 关闭 → `404` `not_found`
 - LLM 不可达或超时 → `502` `companion_unavailable`
 
-Hub 应在超时前返回。4B 关思考仍慢则 `502`，不要让安卓一直转。TTS 失败**不要**把整段打成 502：仍 `200` 并带 `text`，`audio_id` 为 `null`。默认 `tts.deliver` 为 false：Hub 只通知 Mini 出声，chat 不等整段 wav。安卓再喊「岸宝」时打 `POST /v1/companion/stop`，不要等这一轮 chat 结束。
+Hub 应在超时前返回。4B 关思考仍慢则 `502`，不要让安卓一直转。默认 `tts.deliver` 为 false：Hub 流式读 Ollama，**每写出一句（。！？）就 cue Mini TTS**，chat 仍等全文再 `200`。TTS 失败**不要**把整段打成 502。安卓再喊「岸宝」时打 `POST /v1/companion/stop`，不要等这一轮 chat 结束。
 
 一期不根据回复去开灯或开程序。
 

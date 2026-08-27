@@ -33,10 +33,10 @@ Hub 若改到 Mini 上跑，`hub.yaml` 里 llm / tts 才用 `127.0.0.1`。现在
 - 若 Hub 栏填了 Mini 的 IP，测试连接会直接拒绝
 - `companion != null && ready`：主屏可点人物（时钟区域）说话；说「岸宝」同样开听
 - `null` 或 `ready == false`：不打开对话
-- `POST /v1/companion/chat`，超时 30s；可带 `turn_id`
+- `POST /v1/companion/chat`，超时 30s；可带 `turn_id`。默认 `tts.deliver: false`：Hub **边写边 cue** Mini TTS，HTTP 仍等全文再 `200` 给字幕
 - 她正在说话时再喊「岸宝」：立刻 `POST /v1/companion/stop`，Mini 喇叭停，旧轮不再开口，然后重新听
 - 字幕显示 `text`。声音从 Mini 喇叭出，安卓不要播 wav
-- 只有 `companion.tts.deliver: true` 时 chat 才带 `audio_id`，手机才去拉音频
+- 只有 `companion.tts.deliver: true` 时才整段合成、chat 才带 `audio_id`，手机才去拉音频
 
 Hub 在 Windows 时，`hub.yaml` 的 `companion.llm.base_url` / `companion.tts.base_url` 填 Mini：`http://10.83.22.121:11434` 与 `http://10.83.22.121:18100`。TTS 进程在 Mini 上跑（`--play`），不要打进 `dock_hub` 包。
 
@@ -57,14 +57,18 @@ HF_HOME=.cache-base HF_HUB_OFFLINE=1 HF_HUB_DISABLE_XET=1 \
 
 ## 一轮说话（耗时）
 
-典型：喊「岸宝」→ 字幕约 7s，喇叭再晚约 0.5s。
+典型：喊「岸宝」→ **Mini 开口约 4～5s**（以前约 7～13s），字幕稍晚（等全文）。
+
+听完由 `UtteranceGate` 决定：结束静音 **1s**（原 2.4s）、最短句 **1.5s**（原 3s），大约能省 1.5～2s。不要再往下压：短句和停顿会被切掉。
+
+开口走 Hub `stream: true`：Ollama 每写出一句（`。！？` 或换行）就 `POST Mini /v1/speak` `play_only`。第一句句号后约 0.5s Mini 就能出声，不必等整段。`tts.deliver: true` 时仍整段合成，不边写边念。
 
 | 阶段 | 大约 | 说明 |
 |---|---:|---|
 | 切 ASR | 0.5s | 跳过提示音 |
-| 听完一句 | ~4.4s | 识别约 0.7s 就出字；结束静音 2.4s + 最短 3s 把短句拖长 |
-| Ollama 整段 | 2～5s | `stream: false`，写完才 cue TTS。Mini 空闲约 2s |
-| TTS 开口 | 0.4～0.6s | 已 `--play`，不挡 chat 返回 |
+| 听完一句 | ~2.5s | 识别约 0.7s 出字；静音 1s + 最短 1.5s |
+| 第一句开口 | 大脑写出第一句后约 0.5s | 按。！？切句 cue TTS |
+| 字幕 | 全文写完 | chat HTTP 仍等 Ollama 结束 |
 
 再喊「岸宝」走 stop，不走完整这一轮。
 

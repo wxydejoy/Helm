@@ -8,7 +8,7 @@
 
 - [docs/lan-protocol.md](docs/lan-protocol.md) — 说明、时序、验收
 - [docs/openapi.yaml](docs/openapi.yaml) — OpenAPI 3
-- [docs/companion.md](docs/companion.md) — 守岸人拓扑、打断、TTS
+- [docs/companion.md](docs/companion.md) — 守岸人拓扑、听完、边写边念、打断、TTS
 
 默认 Hub `http://10.83.22.31:17890`（Windows，Bearer token）。Mac Mini 监控另开 `http://10.83.22.121:17891`。脑和嘴在 Mini：Ollama `:11434`，TTS `:18100`。
 
@@ -34,7 +34,7 @@
 - **右侧**：米家灯/开关 + **手机媒体控制**（上一首 / 播放暂停 / 下一首）
 - **底部**：室外天气 + 室内温湿度
 - 可选**视频背景**（循环静音）；方块样式（磨砂 / 深色 / 实心 / 细线）与透明度可调
-- **语音唤醒**：说「岸宝」听你说话，字幕显示守岸人的回复；声音从 Mini 喇叭出。她正在说时再喊「岸宝」会打断并停播
+- **语音唤醒**：说「岸宝」听你说话；听完约 2.5s 后发给 Hub。字幕显示全文；Mini 在第一句写出后就开始念。她正在说时再喊「岸宝」会打断并停播
 - **主屏编排**：长按模块可拖动、缩放；可隐藏模块或去掉背景边框
 
 ### 设置
