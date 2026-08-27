@@ -57,7 +57,11 @@ powershell -ExecutionPolicy Bypass -File .\build-exe.ps1
 
 ## 桌面伴侣
 
-默认 `companion.tts.deliver: false`：Hub 流式读 Ollama，**每写出一句就 cue Mini TTS**（`play_only`），`POST /v1/companion/chat` 仍等全文再返回给安卓字幕。打断走 `POST /v1/companion/stop`。说明见 [docs/companion.md](../docs/companion.md)。
+默认 `companion.tts.deliver: false`：Hub 流式读 Ollama（`think: false`），每写出一句（`。！？`）就 cue Mini TTS（`play_only`）。`POST /v1/companion/chat` 仍等全文再返回给安卓字幕。打断走 `POST /v1/companion/stop`。
+
+温度 / 灯 / 电脑占用写成 system 里的「后台状态」，不要拼进用户这句话（否则 4B 会用「台灯」当开场白）。
+
+Hub 在 Windows 时，`companion.llm.base_url` / `tts.base_url` 填 Mini 的局域网地址，不要填 `127.0.0.1`。完整说明见 [docs/companion.md](../docs/companion.md)。
 
 ## 源码开发
 

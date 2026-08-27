@@ -16,6 +16,8 @@ pc:
 
 # 桌面伴侣（本地 LLM + Mini TTS）。整段删掉或 enabled: false → snapshot.companion = null
 # Hub 在 Windows 时填 Mini 局域网 IP，不要填 127.0.0.1
+# 默认 tts.deliver 为 false：Mini 本机出声；Hub 按句 cue，chat 仍等全文
+# 灯/温度/电脑由 Hub 写入 system「后台状态」，不要指望手机传
 # companion:
 #   enabled: true
 #   llm:

@@ -378,7 +378,7 @@ components:
         audio_id:
           type: string
           nullable: true
-          description: Null unless companion.tts.deliver is true and TTS succeeded.
+          description: Null unless companion.tts.deliver is true and TTS succeeded. Default home setup leaves this null; Mini plays locally while Hub streams sentences.
     Device:
       type: object
       required: [id, name, type, online]

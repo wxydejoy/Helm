@@ -1,13 +1,15 @@
 """Mini 上的守岸人 TTS。独立进程，不要 import dock_hub。
 
-Hub 当客户端：POST /v1/speak  → audio/wav
-安卓不直连本服务。
+Hub 当客户端：POST /v1/speak、POST /v1/stop。安卓不直连本服务。
 
 默认：Qwen3-TTS Base 6bit + 守岸人 ref_audio 克隆。
 Serena / CustomVoice 用 --no-clone 和对应 --model 切回去。
 
 --play：合成过程中在本机喇叭/耳机出声。Mac Mini 没有内置喇叭，
-接了输出才听得到。给 Hub 的仍是完整 wav，手机路径不受影响。
+接了输出才听得到。play_only 时给 Hub 的是 202，不把 wav 回给手机。
+
+同轮多次 /v1/speak（边写边念）接到同一条播放队列，不要互相 flush。
+只有 /v1/stop 才清空缓冲并打断这一轮合成。
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ STREAM_INTERVAL = 0.4
 
 
 class _LocalSpeaker(AudioPlayer):
-    """尽快开口；新请求打断上一句。"""
+    """尽快开口。同轮逐句接到缓冲里；只有 /v1/stop 才打断。"""
 
     min_buffer_seconds = 0.25
 
@@ -167,8 +169,6 @@ class Engine:
                     if expected_gen is not None and self._gen != expected_gen:
                         raise InterruptedError("stopped")
                     my = self._gen
-                if self.speaker is not None:
-                    self.speaker.flush()
             for result in self.model.generate(**kwargs):
                 sample_rate = int(getattr(result, "sample_rate", sample_rate) or sample_rate)
                 audio = np.asarray(result.audio, dtype=np.float32)

@@ -2,10 +2,10 @@
 
 Helm 安卓客户端与电脑上 Python Hub 的局域网通信契约。
 
-- **安卓**：只实现本文档的客户端。不直连米家，不理解 `did` / `siid` / `piid`，也不知道电脑上要跑哪条命令；电脑性能数字只读 snapshot 里的 `pc`。
+- **安卓**：只实现本文档的客户端。不直连米家，不理解 `did` / `siid` / `piid`，也不知道电脑上要跑哪条命令；电脑性能数字只读 snapshot 里的 `pc`。Mac Mini 监控是另一端口上的 `helm-mini`，不要和 Hub 填反。
 - **Hub**（另一名 agent 编写）：在 Mac / Windows 上跑一个简单 Python 脚本，对内调 [mijia-api](https://github.com/Do1e/mijia-api)、采集本机性能、按白名单启动本机程序，可选转本地 LLM；对外只暴露本文档的 HTTP 接口。
 
-本文档是唯一协议来源。机器可读副本见 [openapi.yaml](./openapi.yaml)。
+本文档是唯一协议来源。机器可读副本见 [openapi.yaml](./openapi.yaml)。守岸人拓扑与启动顺序见 [companion.md](./companion.md)。
 
 ---
 
@@ -18,7 +18,7 @@ Helm 安卓客户端与电脑上 Python Hub 的局域网通信契约。
 3. 主屏 logo：点一下，Hub 在电脑上启动已配置的程序或脚本（Steam、浏览器、一段 `.ps1` / `.bat` 等）
 4. 电脑监控：CPU / 内存占用、温度、当前帧率等（只读，挂在 snapshot 的 `pc` 上）
 5. 音乐播放控制：上一首 / 播放暂停 / 下一首（挂在 snapshot 的 `media` 上；命令走保留 id `media`）
-6. 可选桌面伴侣：短对话（挂在 snapshot 的 `companion` 上；说话走 `POST /v1/companion/chat`）。实现说明见 [companion.md](./companion.md)
+6. 可选桌面伴侣：短对话（挂在 snapshot 的 `companion` 上；说话走 `POST /v1/companion/chat`，打断走 `POST /v1/companion/stop`）。家里怎么接三台机器见 [companion.md](./companion.md)
 
 不做：电脑唤醒/休眠、摄像头、公网访问、HTTPS、设备实时推送、米家完整设备列表、安卓下发任意命令行、进程列表、磁盘分区管理、远程桌面。
 
@@ -240,7 +240,7 @@ Hub 可选注册 mDNS，方便以后自动发现：
 - 配置关闭或整段删掉 → snapshot 的 `companion` 为 `null`（键保留，值为 `null`）
 - 不依赖米家。`hub.mijia` 为 `login_required` 时，`companion` 仍应照常返回
 - 禁止把模型路径、prompt、API key、参考音频路径放进 snapshot
-- 安卓只发用户这句话；室温 / 灯 / pc 由 Hub 自行塞进模型，不要让手机拼人设
+- 安卓只发用户这句话；室温 / 灯 / pc 由 Hub 写成 system 里的「后台状态」，不要拼进用户消息，也不要让手机拼人设
 
 ---
 
@@ -543,7 +543,7 @@ Content-Type: application/json
 - companion 关闭 → `404` `not_found`
 - LLM 不可达或超时 → `502` `companion_unavailable`
 
-Hub 应在超时前返回。4B 关思考仍慢则 `502`，不要让安卓一直转。默认 `tts.deliver` 为 false：Hub 流式读 Ollama，**每写出一句（。！？）就 cue Mini TTS**，chat 仍等全文再 `200`。TTS 失败**不要**把整段打成 502。安卓再喊「岸宝」时打 `POST /v1/companion/stop`，不要等这一轮 chat 结束。
+Hub 应在超时前返回。4B 关思考仍慢则 `502`，不要让安卓一直转。默认 `tts.deliver` 为 false：Hub 流式读 Ollama，**每写出一句（。！？）就 cue Mini TTS**，chat 仍等全文再 `200`。TTS 侧同轮各句接到同一播放队列，不要互相打断；只有 `POST /v1/companion/stop` 才停喇叭。TTS 失败**不要**把整段打成 502。安卓再喊「岸宝」时打 stop，不要等这一轮 chat 结束。
 
 一期不根据回复去开灯或开程序。
 
@@ -688,6 +688,7 @@ media:
   enabled: true
 
 # 桌面伴侣。整段删掉或 enabled: false → snapshot.companion = null
+# Hub 在 Windows：llm/tts 填 Mini 局域网地址。deliver 默认 false（Mini 出声）
 # companion:
 #   enabled: true
 #   llm:

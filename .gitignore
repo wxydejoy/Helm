@@ -22,3 +22,4 @@ android/app/src/main/assets/kws/*.onnx
 android/app/src/main/assets/asr/*.onnx
 .idea/
 .DS_Store
+/1.mp4

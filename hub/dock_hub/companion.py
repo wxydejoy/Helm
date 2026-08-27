@@ -1,3 +1,9 @@
+"""桌面伴侣：Hub 把 K20 的一句话转给 Mini 的 Ollama，再按句 cue Mini TTS。
+
+默认 tts.deliver=false：stream 读模型，第一句就能开口；chat HTTP 仍等全文给字幕。
+snapshot 里的灯/温度/电脑占用放进 system「后台状态」，不要拼进用户消息。
+"""
+
 from __future__ import annotations
 
 import json
@@ -19,8 +25,8 @@ MAX_CLIPS = 8
 
 DEFAULT_PERSONA = """你是守岸人，正在漂泊者的书桌上值班。说话慢、短、轻，偏诗意，不卖萌，不喊口号，不讲游戏剧情。
 每次只回 1～3 句。可以叫对方「漂泊者」。不知道就说不知道，不要编造。
-你会根据「当前状态」回答；状态里没有的，不要假装看见。
-不要输出 ACTION 行，也不要声称已经开灯或开了程序。"""
+后台状态只在对方问灯、温度、电脑时才提一句；打招呼和闲聊不要报台灯、插座或占用率，也不要用「台灯」当开场白。
+状态里没有的，不要假装看见。不要输出 ACTION 行，也不要声称已经开灯或开了程序。"""
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 _ACTION_RE = re.compile(r"^\s*ACTION:\s*\S+\s*$", re.MULTILINE)
@@ -91,11 +97,7 @@ class Companion:
             self._seq += 1
             seq = self._seq
         self._stop_tts()
-        persona = (self.config.persona or DEFAULT_PERSONA).strip()
-        messages = [
-            {"role": "system", "content": persona},
-            {"role": "user", "content": f"当前状态：\n{facts}\n\n漂泊者：{text}"},
-        ]
+        messages = build_messages(text, facts, self.config.persona)
         llm_at = time.monotonic()
         cue_as_we_go = bool(self.config.tts_base_url) and not self.config.tts_deliver
         try:
@@ -363,6 +365,18 @@ class Companion:
             return None
         _latency(turn, "tts_done", ms=_ms(tts_at), bytes=len(raw))
         return raw
+
+
+def build_messages(text: str, facts: str, persona: str | None = None) -> list[dict[str, str]]:
+    """用户消息只有这句话；灯/温度/电脑占用进 system，避免 4B 用台灯当开场白。"""
+    system = (persona or DEFAULT_PERSONA).strip()
+    facts = facts.strip()
+    if facts:
+        system = f"{system}\n\n后台状态（仅在被问及时使用，不要当开场白）：\n{facts}"
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": text},
+    ]
 
 
 def facts_from_snapshot(snap: dict[str, Any]) -> str:

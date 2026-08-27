@@ -12,7 +12,12 @@ from unittest.mock import patch
 from urllib.error import URLError
 from urllib.request import Request
 
-from dock_hub.companion import _clean_reply, cut_sentences, facts_from_snapshot
+from dock_hub.companion import (
+    _clean_reply,
+    build_messages,
+    cut_sentences,
+    facts_from_snapshot,
+)
 from dock_hub.config import hub_config_to_raw, parse_config
 from dock_hub.server import make_handler
 from dock_hub.service import DockHub
@@ -118,6 +123,14 @@ class CompanionLogicTest(unittest.TestCase):
     def test_strips_think_and_action(self) -> None:
         raw = "<think>long</think>\n晚上好。\nACTION: lamp.on\n还早。"
         self.assertEqual(_clean_reply(raw), "晚上好。\n还早。")
+
+    def test_messages_keep_lamp_out_of_user(self) -> None:
+        messages = build_messages("岸宝", "室内 24.0°C。\n设备：台灯开。")
+        self.assertEqual(messages[1]["content"], "岸宝")
+        self.assertIn("台灯开", messages[0]["content"])
+        self.assertIn("仅在被问及时使用", messages[0]["content"])
+        self.assertNotIn("台灯", messages[1]["content"])
+        self.assertNotIn("当前状态", messages[1]["content"])
 
     def test_facts_from_snapshot(self) -> None:
         facts = facts_from_snapshot(
