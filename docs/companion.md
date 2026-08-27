@@ -4,27 +4,69 @@
 
 改接口先改 [lan-protocol.md](./lan-protocol.md) 和 [openapi.yaml](./openapi.yaml)。
 
-## 拓扑
+## 拓扑（三台，各干一件事）
 
 ```
-K20 Helm  ──Bearer──►  Hub :17890（这台 Mini 或 Windows）
-                         ├─ 米家 / 开程序 / pc（多在 Windows）
-                         ├─ POST /v1/companion/chat  → Mini Ollama :11434  qwen3.5:4b
-                         └─ TTS :18100（Hub 当客户端；安卓只 GET Hub 的 audio）
+K20 Helm（脸+耳+字幕）
+   Bearer ──►  Windows Hub :17890（门口）
+                  ├─ 米家 / 开程序 / pc / 媒体
+                  ├─ chat → Mini Ollama :11434
+                  └─ cue  → Mini TTS :18100（本机喇叭；不把 wav 回给手机）
+                  └─ stop → Mini TTS /v1/stop（再喊「岸宝」打断）
 ```
 
-Hub 在 Mini 上时，`hub.yaml` 里 llm / tts 用 `127.0.0.1`。
+| 谁 | 地址 | 干什么 | 不干什么 |
+|---|---|---|---|
+| **K20 安卓** | `10.83.22.150` | 脸：主屏、点灯、开程序、听你说话、显示字幕 | 不播守岸人声音；不直连 Ollama / TTS |
+| **Windows Hub** | **`10.83.22.31:17890`** `service=dock-hub` `name=study` | 门口：米家、Steam 等、电脑监控；把对话转给 Mini | 不跑模型、不合成语音 |
+| **Mac Mini 监控** | `10.83.22.121:17891` `service=helm-mini` | 主屏 CPU 块第二行 | 不是 Hub |
+| **Mac Mini 脑+嘴** | Ollama `:11434`、TTS **`:18100 --play`** | 写字、本机出声 | 不当 Hub；安卓不连它 |
+
+**安卓设置不要填反：** Hub 是 Windows `10.83.22.31:17890`，Mini 监控是 `10.83.22.121:17891`。Mini 上如果还开着一份 dock-hub `:17890`（`name=mini`），填错 IP 时健康检查会误报成功，真正拉米家/对话会失败。
+
+Hub 若改到 Mini 上跑，`hub.yaml` 里 llm / tts 才用 `127.0.0.1`。现在 Hub 在 Windows。
 
 ## 安卓（在家）
 
 - 设置：Hub 的 host / port / token。不要填 Ollama、TTS、百炼
-- `companion != null && ready`：主屏可点人物（时钟区域）说话
+- Hub 占位默认 `10.83.22.31`；粘贴 `IP:端口` 时会丢掉端口，避免拼成双端口
+- 若 Hub 栏填了 Mini 的 IP，测试连接会直接拒绝
+- `companion != null && ready`：主屏可点人物（时钟区域）说话；说「岸宝」同样开听
 - `null` 或 `ready == false`：不打开对话
-- `POST /v1/companion/chat`，超时 30s
-- 字幕显示 `text`；`audio_id` 非空时 `GET /v1/companion/audio/{id}` 播 wav
-- 播放器用独立播放器，不要动循环视频的静音
+- `POST /v1/companion/chat`，超时 30s；可带 `turn_id`
+- 她正在说话时再喊「岸宝」：立刻 `POST /v1/companion/stop`，Mini 喇叭停，旧轮不再开口，然后重新听
+- 字幕显示 `text`。声音从 Mini 喇叭出，安卓不要播 wav
+- 只有 `companion.tts.deliver: true` 时 chat 才带 `audio_id`，手机才去拉音频
 
-Hub 在 Windows 时，`hub.yaml` 的 `companion.tts.base_url` 填 Mini：`http://10.83.22.121:18100`。TTS 进程在 Mini 上跑，不要打进 `dock_hub` 包。
+Hub 在 Windows 时，`hub.yaml` 的 `companion.llm.base_url` / `companion.tts.base_url` 填 Mini：`http://10.83.22.121:11434` 与 `http://10.83.22.121:18100`。TTS 进程在 Mini 上跑（`--play`），不要打进 `dock_hub` 包。
+
+## Mini TTS
+
+目录：`companion/tts/`。独立进程，见 [../companion/tts/README.md](../companion/tts/README.md)。
+
+```bash
+cd companion/tts
+HF_HOME=.cache-base HF_HUB_OFFLINE=1 HF_HUB_DISABLE_XET=1 \
+  .venv/bin/python server.py --host 0.0.0.0 --port 18100 \
+  --ref-audio voices/shorekeeper/clone.wav --voice shorekeeper --play
+```
+
+- `POST /v1/speak` + `play_only: true` → **202**，本机边合成边播
+- `POST /v1/stop` → 立刻清播放缓冲并丢掉这一轮合成
+- 安卓不要直连 `:18100`
+
+## 一轮说话（耗时）
+
+典型：喊「岸宝」→ 字幕约 7s，喇叭再晚约 0.5s。
+
+| 阶段 | 大约 | 说明 |
+|---|---:|---|
+| 切 ASR | 0.5s | 跳过提示音 |
+| 听完一句 | ~4.4s | 识别约 0.7s 就出字；结束静音 2.4s + 最短 3s 把短句拖长 |
+| Ollama 整段 | 2～5s | `stream: false`，写完才 cue TTS。Mini 空闲约 2s |
+| TTS 开口 | 0.4～0.6s | 已 `--play`，不挡 chat 返回 |
+
+再喊「岸宝」走 stop，不走完整这一轮。
 
 ## 人设
 

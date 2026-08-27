@@ -20,15 +20,12 @@ data class HubConnection(
     val isConfigured: Boolean
         get() = host.isNotBlank() && token.isNotBlank() && port in 1..65535
 
-    fun baseUrl(): String {
-        val cleaned = host.trim()
-            .removePrefix("http://")
-            .removePrefix("https://")
-            .trimEnd('/')
-        return "http://$cleaned:$port"
-    }
+    fun baseUrl(): String = lanHttpUrl(host, port)
+
+    fun isMiniHost(): Boolean = lanHost(host) == MiniConnection.DEFAULT_HOST
 
     companion object {
+        const val DEFAULT_HOST = "10.83.22.31"
         const val DEFAULT_PORT = 17890
     }
 }
@@ -41,19 +38,35 @@ data class MiniConnection(
     val isConfigured: Boolean
         get() = host.isNotBlank() && token.isNotBlank() && port in 1..65535
 
-    fun baseUrl(): String {
-        val cleaned = host.trim()
-            .removePrefix("http://")
-            .removePrefix("https://")
-            .trimEnd('/')
-        return "http://$cleaned:$port"
-    }
+    fun baseUrl(): String = lanHttpUrl(host, port)
 
     companion object {
         const val DEFAULT_HOST = "10.83.22.121"
         const val DEFAULT_PORT = 17891
         const val DEFAULT_TOKEN = "helm-mini-weiekko"
     }
+}
+
+internal fun lanHttpUrl(host: String, port: Int): String = "http://${lanHost(host)}:$port"
+
+internal fun lanHost(host: String): String {
+    var cleaned = host.trim()
+        .removePrefix("http://")
+        .removePrefix("https://")
+        .trimEnd('/')
+    val slash = cleaned.indexOf('/')
+    if (slash >= 0) cleaned = cleaned.substring(0, slash)
+    val colon = cleaned.lastIndexOf(':')
+    if (colon > 0) {
+        val maybePort = cleaned.substring(colon + 1)
+        if (maybePort.isNotEmpty() && maybePort.all { it.isDigit() }) {
+            val parsed = maybePort.toIntOrNull()
+            if (parsed != null && parsed in 1..65535) {
+                cleaned = cleaned.substring(0, colon)
+            }
+        }
+    }
+    return cleaned
 }
 
 class HubPreferences(private val context: Context) {

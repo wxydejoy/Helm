@@ -70,6 +70,7 @@ v1 不轮换 token。局域网 + 长 token 足够。
 | `GET /health`、`GET /v1/snapshot` | 5 秒 |
 | `POST /v1/devices/{id}/command` | 10 秒 |
 | `POST /v1/companion/chat` | 30 秒 |
+| `POST /v1/companion/stop` | 2 秒 |
 | `GET /v1/companion/audio/{id}` | 30 秒 |
 
 Hub 应在超时前返回。米家过慢则 `502` + `mijia_error`。
@@ -101,7 +102,7 @@ Hub 可选注册 mDNS，方便以后自动发现：
 
 ## 4. 接口一览
 
-一共 5 个（companion 可关）：
+一共 6 个（companion 可关）：
 
 | 方法 | 路径 | 鉴权 | 用途 |
 |---|---|---|---|
@@ -109,9 +110,10 @@ Hub 可选注册 mDNS，方便以后自动发现：
 | `GET` | `/v1/snapshot` | 是 | 主屏全部状态（一次拿完） |
 | `POST` | `/v1/devices/{id}/command` | 是 | 控制一个设备，或触发一个 logo 动作 |
 | `POST` | `/v1/companion/chat` | 是 | 桌面伴侣一轮对话（配置关闭则 404） |
+| `POST` | `/v1/companion/stop` | 是 | 打断当前说话，立刻停 Mini 喇叭 |
 | `GET` | `/v1/companion/audio/{id}` | 是 | 伴侣 wav（`audio_id` 为空或关闭则不要打） |
 
-没有单独的「读温度」「读电脑性能」「跑脚本」「读正在播放」接口。米家温度、logo、电脑监控、正在播放、伴侣是否就绪都在 snapshot 里；点击 logo 和播放键走同一个 command；说话走 companion/chat，声音走 companion/audio。
+没有单独的「读温度」「读电脑性能」「跑脚本」「读正在播放」接口。米家温度、logo、电脑监控、正在播放、伴侣是否就绪都在 snapshot 里；点击 logo 和播放键走同一个 command；说话走 companion/chat，再喊唤醒词打断走 companion/stop，声音走 companion/audio。
 
 ---
 
@@ -231,7 +233,7 @@ Hub 可选注册 mDNS，方便以后自动发现：
 |---|---|---|
 | `ready` | 是 | 大脑（LLM）现在能否回答。Ollama 守护进程活着则为 `true` |
 | `voice` | 是 | Mini TTS `/health` 探活且 `ready`。没配 `tts.base_url` 或连不上则为 `false` |
-| `speaking` | 是 | Hub 正在向 TTS 要 wav 时为 `true` |
+| `speaking` | 是 | Hub 正在向 TTS 提交或拉取音频时为 `true`。`POST /v1/companion/stop` 后应变回 `false` |
 
 规则：
 
@@ -526,14 +528,14 @@ Content-Type: application/json
 ```json
 {
   "text": "晚上好，漂泊者。岸边很安静。",
-  "audio_id": "a1b2c3d4e5f6"
+  "audio_id": null
 }
 ```
 
 | 字段 | 说明 |
 |---|---|
 | `text` | 给字幕和 TTS 的正文。1–3 句。不要把 thinking 链放进来 |
-| `audio_id` | 配了 TTS 且合成成功则为 id（`A-Za-z0-9._-`）；否则 `null`。非空时可立刻 `GET /v1/companion/audio/{id}` |
+| `audio_id` | 默认 `null`：声音从 Mini 本机播放，不把 wav 交给手机。仅当 `companion.tts.deliver: true` 且合成成功时才为 id（`A-Za-z0-9._-`），非空时可立刻 `GET /v1/companion/audio/{id}` |
 
 **错误**
 
@@ -541,13 +543,13 @@ Content-Type: application/json
 - companion 关闭 → `404` `not_found`
 - LLM 不可达或超时 → `502` `companion_unavailable`
 
-Hub 应在超时前返回。4B 关思考仍慢则 `502`，不要让安卓一直转。TTS 失败**不要**把整轮打成 502：仍 `200` 并带 `text`，`audio_id` 为 `null`。
+Hub 应在超时前返回。4B 关思考仍慢则 `502`，不要让安卓一直转。TTS 失败**不要**把整段打成 502：仍 `200` 并带 `text`，`audio_id` 为 `null`。默认 `tts.deliver` 为 false：Hub 只通知 Mini 出声，chat 不等整段 wav。安卓再喊「岸宝」时打 `POST /v1/companion/stop`，不要等这一轮 chat 结束。
 
 一期不根据回复去开灯或开程序。
 
 ### 6.5 `GET /v1/companion/audio/{id}`
 
-需要 token。`id` 只允许 `A-Za-z0-9._-`。Hub 从 Mini TTS（`:18100` `POST /v1/speak`）拿到的 wav 缓存在本机；**安卓不要直连 :18100**。
+需要 token。`id` 只允许 `A-Za-z0-9._-`。仅 `tts.deliver: true` 时 Hub 才会缓存 Mini TTS 的 wav；**安卓不要直连 :18100**。默认不缓存，本接口 404。
 
 合成发生在 `POST /v1/companion/chat` 里；本接口只返回已缓存的 wav，不再向 TTS 要一遍。
 
@@ -559,6 +561,25 @@ Authorization: Bearer <token>
 ```
 
 **200** `Content-Type: audio/wav`
+
+### 6.6 `POST /v1/companion/stop`
+
+需要 token。配置未开启 companion → `404` `not_found`。
+
+再喊「岸宝」时立刻打这个接口：停 Mini 喇叭、丢掉还没开口的旧轮 TTS。请求体可空。安卓不要直连 `:18100`。
+
+```http
+POST /v1/companion/stop
+Authorization: Bearer <token>
+```
+
+**200**
+
+```json
+{"ok": true}
+```
+
+TTS 没配或 Mini 暂时连不上仍 `200`（字幕和唤醒不受影响）。进行中的 `chat` 若大脑还没返回，回来后不要再 cue TTS。
 
 ---
 
@@ -788,7 +809,7 @@ devices:
 - 不要新增安卓还没实现的接口而不改本文档
 - 不要返回配置外的设备
 - 不要接受安卓传来的可执行路径、参数或脚本正文
-- 不要为电脑监控或播放控制再开未写进本文档的 HTTP 接口（一律走 snapshot / 现有 command）。伴侣对话是 `/v1/companion/chat`，声音是 `/v1/companion/audio/{id}`
+- 不要为电脑监控或播放控制再开未写进本文档的 HTTP 接口（一律走 snapshot / 现有 command）。伴侣对话是 `/v1/companion/chat`，打断是 `/v1/companion/stop`，声音是 `/v1/companion/audio/{id}`
 - 不要在 `pc` 里返回进程列表或可执行路径
 - 不要把 `media` 当成 `devices[]` 里的一项；也不要用 `media` 做设备 id
 - 不要提供图标文件接口；`icon` 只发短名，由安卓用 Remix Icon 渲染
@@ -847,11 +868,16 @@ curl -s http://HOST:17890/v1/devices/media/command \
   -H "Content-Type: application/json" \
   -d '{"media":"toggle"}'
 
-# 桌面伴侣（需 hub.yaml companion.enabled；有 TTS 时带 audio_id）
+# 桌面伴侣（需 hub.yaml companion.enabled；默认 Mini 出声，audio_id 为 null）
 curl -s http://HOST:17890/v1/companion/chat \
   -H "Authorization: Bearer TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"text":"晚上好。"}'
+
+# 打断当前说话（Mini 喇叭立刻停）
+curl -s http://HOST:17890/v1/companion/stop \
+  -H "Authorization: Bearer TOKEN" \
+  -X POST
 
 # 有 audio_id 时拉 wav（安卓只连 Hub，不要直连 Mini :18100）
 curl -s http://HOST:17890/v1/companion/audio/AUDIO_ID \

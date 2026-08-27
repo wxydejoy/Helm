@@ -40,6 +40,7 @@ class Companion:
         self._ready_at = 0.0
         self._voice_at = 0.0
         self._speaking = False
+        self._seq = 0
         self._lock = threading.Lock()
         self._clips: OrderedDict[str, bytes] = OrderedDict()
 
@@ -51,6 +52,7 @@ class Companion:
         self._voice_at = 0.0
         with self._lock:
             self._speaking = False
+            self._seq += 1
             self._clips.clear()
 
     def snapshot(self) -> dict[str, Any] | None:
@@ -85,6 +87,10 @@ class Companion:
         turn = _turn_id(body)
         started = time.monotonic()
         _latency(turn, "chat_recv", chars=len(text))
+        with self._lock:
+            self._seq += 1
+            seq = self._seq
+        self._stop_tts()
         persona = (self.config.persona or DEFAULT_PERSONA).strip()
         messages = [
             {"role": "system", "content": persona},
@@ -103,9 +109,23 @@ class Companion:
         _latency(turn, "ollama_done", ms=_ms(llm_at), chars=len(spoken))
         self._ready = True
         self._ready_at = time.monotonic()
+        with self._lock:
+            if seq != self._seq:
+                _latency(turn, "barge_in", ms=_ms(started))
+                return {"text": spoken, "audio_id": None}
         audio_id = self._maybe_speak(spoken, turn)
         _latency(turn, "chat_total", ms=_ms(started), audio=1 if audio_id else 0)
         return {"text": spoken, "audio_id": audio_id}
+
+    def stop(self) -> dict[str, Any]:
+        if not self.config.enabled:
+            raise HubError("not_found", "未开启桌面伴侣")
+        with self._lock:
+            self._seq += 1
+            self._speaking = False
+        self._stop_tts()
+        _latency("-", "stop")
+        return {"ok": True}
 
     def audio(self, ident: str) -> bytes:
         if not self.config.enabled:
@@ -139,7 +159,7 @@ class Companion:
         finally:
             with self._lock:
                 self._speaking = False
-        if not wav:
+        if not self.config.tts_deliver or not wav:
             return None
         ident = turn
         with self._lock:
@@ -147,6 +167,22 @@ class Companion:
             while len(self._clips) > MAX_CLIPS:
                 self._clips.popitem(last=False)
         return ident
+
+    def _stop_tts(self) -> None:
+        if not self.config.tts_base_url:
+            return
+        url = _join(self.config.tts_base_url, "/v1/stop")
+        req = urllib.request.Request(
+            url,
+            data=b"{}",
+            method="POST",
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
+                resp.read()
+        except (TimeoutError, urllib.error.URLError, OSError):
+            return
 
     def _ping_llm(self) -> bool:
         url = _join(self.config.llm_base_url, "/api/tags")
@@ -215,28 +251,39 @@ class Companion:
 
     def _speak(self, text: str, turn: str) -> bytes | None:
         url = _join(self.config.tts_base_url or "", "/v1/speak")
-        payload = json.dumps(
-            {"text": text, "voice": "shorekeeper", "language": "chinese", "turn_id": turn},
-            ensure_ascii=False,
-        ).encode("utf-8")
+        play_only = not self.config.tts_deliver
+        body: dict[str, Any] = {
+            "text": text,
+            "voice": "shorekeeper",
+            "language": "chinese",
+            "turn_id": turn,
+        }
+        if play_only:
+            body["play_only"] = True
+        payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        accept = "application/json" if play_only else "audio/wav"
+        timeout = 3.0 if play_only else self.config.tts_timeout_sec
         req = urllib.request.Request(
             url,
             data=payload,
             method="POST",
-            headers={"Content-Type": "application/json", "Accept": "audio/wav"},
+            headers={"Content-Type": "application/json", "Accept": accept},
         )
         tts_at = time.monotonic()
         try:
-            with urllib.request.urlopen(req, timeout=self.config.tts_timeout_sec) as resp:
-                wav = resp.read()
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read()
         except (TimeoutError, urllib.error.URLError, OSError):
             _latency(turn, "tts_error", ms=_ms(tts_at))
             return None
-        if not wav:
+        if play_only:
+            _latency(turn, "tts_cued", ms=_ms(tts_at), bytes=len(raw))
+            return None
+        if not raw:
             _latency(turn, "tts_empty", ms=_ms(tts_at))
             return None
-        _latency(turn, "tts_done", ms=_ms(tts_at), bytes=len(wav))
-        return wav
+        _latency(turn, "tts_done", ms=_ms(tts_at), bytes=len(raw))
+        return raw
 
 
 def facts_from_snapshot(snap: dict[str, Any]) -> str:

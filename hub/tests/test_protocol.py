@@ -140,6 +140,9 @@ class ProtocolTest(unittest.TestCase):
         status, body = self._request("GET", "/v1/companion/audio/abc")
         self.assertEqual(status, 404)
         self.assertEqual(body["error"]["code"], "not_found")
+        status, body = self._request("POST", "/v1/companion/stop", {})
+        self.assertEqual(status, 404)
+        self.assertEqual(body["error"]["code"], "not_found")
 
 
 class ConfigTest(unittest.TestCase):

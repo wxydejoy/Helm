@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import threading
+import time
 import unittest
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
@@ -59,6 +60,8 @@ def _fake_ollama(content: str = "晚上好，漂泊者。", wav: bytes | None = 
             if wav is None:
                 raise URLError("tts down")
             return _FakeBytes(wav)
+        if url.endswith("/v1/stop"):
+            return _FakeResp({"ok": True})
         raise AssertionError(url)
 
     return urlopen
@@ -106,9 +109,11 @@ class CompanionLogicTest(unittest.TestCase):
         self.assertTrue(cfg.companion.enabled)
         self.assertEqual(cfg.companion.llm_base_url, "http://10.0.0.8:11434")
         self.assertEqual(cfg.companion.tts_base_url, "http://10.0.0.8:18100")
+        self.assertFalse(cfg.companion.tts_deliver)
         dumped = hub_config_to_raw(cfg)
         self.assertEqual(dumped["companion"]["llm"]["model"], "qwen3.5:4b")
         self.assertEqual(dumped["companion"]["tts"]["base_url"], "http://10.0.0.8:18100")
+        self.assertNotIn("deliver", dumped["companion"]["tts"])
 
 
 class CompanionProtocolTest(unittest.TestCase):
@@ -211,7 +216,7 @@ class CompanionProtocolTest(unittest.TestCase):
                             "model": "qwen3.5:4b",
                             "timeout_sec": 2,
                         },
-                        "tts": {"base_url": "http://127.0.0.1:9", "timeout_sec": 2},
+                        "tts": {"base_url": "http://127.0.0.1:9", "timeout_sec": 2, "deliver": True},
                     },
                     "devices": [],
                 }
@@ -247,7 +252,7 @@ class CompanionProtocolTest(unittest.TestCase):
                             "model": "qwen3.5:4b",
                             "timeout_sec": 2,
                         },
-                        "tts": {"base_url": "http://127.0.0.1:9", "timeout_sec": 2},
+                        "tts": {"base_url": "http://127.0.0.1:9", "timeout_sec": 2, "deliver": True},
                     },
                     "devices": [],
                 }
@@ -261,6 +266,39 @@ class CompanionProtocolTest(unittest.TestCase):
             )
         self.assertEqual(status, 200)
         self.assertEqual(body["audio_id"], "lat12ab34cd")
+
+    def test_chat_tts_cues_mini_without_phone_wav(self) -> None:
+        wav = b"RIFF....WAVE"
+        fake = _fake_ollama("晚上好，漂泊者。", wav=wav)
+        self.hub.companion.configure(
+            parse_config(
+                {
+                    "name": "study",
+                    "token": "secret-token-value",
+                    "companion": {
+                        "enabled": True,
+                        "llm": {
+                            "base_url": "http://127.0.0.1:9",
+                            "model": "qwen3.5:4b",
+                            "timeout_sec": 2,
+                        },
+                        "tts": {"base_url": "http://127.0.0.1:9", "timeout_sec": 2},
+                    },
+                    "devices": [],
+                }
+            ).companion
+        )
+        with patch("dock_hub.companion.urllib.request.urlopen", fake):
+            status, body = self._request(
+                "POST",
+                "/v1/companion/chat",
+                {"text": "晚上好。", "turn_id": "lat12ab34cd"},
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(body["text"], "晚上好，漂泊者。")
+        self.assertIsNone(body["audio_id"])
+        wav_status, _, _ = self._raw("GET", "/v1/companion/audio/lat12ab34cd")
+        self.assertEqual(wav_status, 404)
 
     def test_unknown_audio_is_404(self) -> None:
         status, body = self._request("GET", "/v1/companion/audio/nope")
@@ -297,6 +335,104 @@ class CompanionProtocolTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["text"], "岸边很安静。")
         self.assertIsNone(body["audio_id"])
+
+    def test_stop_ok_without_tts(self) -> None:
+        status, body = self._request("POST", "/v1/companion/stop", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+
+    def test_stop_calls_mini_tts(self) -> None:
+        seen: list[str] = []
+
+        def fake(req: Request, timeout: object = None):
+            url = req.get_full_url()
+            seen.append(url)
+            if url.endswith("/v1/stop"):
+                return _FakeResp({"ok": True})
+            raise AssertionError(url)
+
+        self.hub.companion.configure(
+            parse_config(
+                {
+                    "name": "study",
+                    "token": "secret-token-value",
+                    "companion": {
+                        "enabled": True,
+                        "llm": {
+                            "base_url": "http://127.0.0.1:9",
+                            "model": "qwen3.5:4b",
+                            "timeout_sec": 2,
+                        },
+                        "tts": {"base_url": "http://127.0.0.1:9"},
+                    },
+                    "devices": [],
+                }
+            ).companion
+        )
+        with patch("dock_hub.companion.urllib.request.urlopen", fake):
+            status, body = self._request("POST", "/v1/companion/stop", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        self.assertTrue(any(url.endswith("/v1/stop") for url in seen))
+
+    def test_stop_skips_tts_after_slow_llm(self) -> None:
+        gate = threading.Event()
+        seen: list[str] = []
+
+        def fake(req: Request, timeout: object = None):
+            url = req.get_full_url()
+            seen.append(url)
+            if url.endswith("/api/tags") or url.endswith("/health"):
+                return _FakeResp({"ok": True, "ready": True, "models": []})
+            if url.endswith("/v1/stop"):
+                return _FakeResp({"ok": True})
+            if url.endswith("/api/chat"):
+                gate.wait(2)
+                return _FakeResp({"message": {"content": "晚上好，漂泊者。"}})
+            if url.endswith("/v1/speak"):
+                raise AssertionError("interrupted chat should not speak")
+            raise AssertionError(url)
+
+        self.hub.companion.configure(
+            parse_config(
+                {
+                    "name": "study",
+                    "token": "secret-token-value",
+                    "companion": {
+                        "enabled": True,
+                        "llm": {
+                            "base_url": "http://127.0.0.1:9",
+                            "model": "qwen3.5:4b",
+                            "timeout_sec": 2,
+                        },
+                        "tts": {"base_url": "http://127.0.0.1:9"},
+                    },
+                    "devices": [],
+                }
+            ).companion
+        )
+        result: dict = {}
+
+        def run_chat() -> None:
+            status, body = self._request("POST", "/v1/companion/chat", {"text": "晚上好。"})
+            result["status"] = status
+            result["body"] = body
+
+        with patch("dock_hub.companion.urllib.request.urlopen", fake):
+            worker = threading.Thread(target=run_chat)
+            worker.start()
+            deadline = time.monotonic() + 1.5
+            while time.monotonic() < deadline and not any(url.endswith("/api/chat") for url in seen):
+                time.sleep(0.02)
+            stop_status, stop_body = self._request("POST", "/v1/companion/stop", {})
+            self.assertEqual(stop_status, 200)
+            self.assertTrue(stop_body["ok"])
+            gate.set()
+            worker.join(timeout=3)
+        self.assertEqual(result.get("status"), 200)
+        self.assertEqual(result["body"]["text"], "晚上好，漂泊者。")
+        self.assertIsNone(result["body"]["audio_id"])
+        self.assertFalse(any(url.endswith("/v1/speak") for url in seen))
 
 
 if __name__ == "__main__":

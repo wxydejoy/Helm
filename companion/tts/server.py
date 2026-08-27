@@ -5,6 +5,9 @@ Hub 当客户端：POST /v1/speak  → audio/wav
 
 默认：Qwen3-TTS Base 6bit + 守岸人 ref_audio 克隆。
 Serena / CustomVoice 用 --no-clone 和对应 --model 切回去。
+
+--play：合成过程中在本机喇叭/耳机出声。Mac Mini 没有内置喇叭，
+接了输出才听得到。给 Hub 的仍是完整 wav，手机路径不受影响。
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from urllib.parse import urlparse
 
 import numpy as np
 from mlx_audio.audio_io import write as audio_write
+from mlx_audio.tts.audio_player import AudioPlayer
 from mlx_audio.tts.utils import load_model
 
 HERE = Path(__file__).resolve().parent
@@ -27,8 +31,33 @@ MODEL_ID = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit"
 CUSTOMVOICE_MODEL_ID = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-6bit"
 DEFAULT_VOICE = "shorekeeper"
 DEFAULT_LANG = "chinese"
-DEFAULT_REF_AUDIO = HERE / "voices" / "shorekeeper" / "default.wav"
+DEFAULT_REF_AUDIO = HERE / "voices" / "shorekeeper" / "clone.wav"
 MAX_BODY = 16_384
+STREAM_INTERVAL = 0.4
+
+
+class _LocalSpeaker(AudioPlayer):
+    """尽快开口；新请求打断上一句。"""
+
+    min_buffer_seconds = 0.25
+
+    def start_stream(self):
+        import sounddevice as sd
+
+        self.stream = sd.OutputStream(
+            samplerate=self.sample_rate,
+            channels=1,
+            callback=self.callback,
+            blocksize=self.buffer_size,
+        )
+        self.stream.start()
+        self.playing = True
+        self.drain_event.clear()
+
+    def flush(self):
+        with self.buffer_lock:
+            self.audio_buffer.clear()
+        self.stop_stream()
 
 
 class Engine:
@@ -38,14 +67,20 @@ class Engine:
         voice: str,
         ref_audio: str | None,
         ref_text: str | None,
+        play: bool,
     ) -> None:
         self.model_id = model_id
         self.voice = voice
         self.ref_audio = ref_audio
         self.ref_text = ref_text
+        self.play = play
         self.model = None
         self.error: str | None = None
         self.lock = threading.Lock()
+        self._play_lock = threading.Lock()
+        self._gate = threading.Lock()
+        self._gen = 0
+        self.speaker = _LocalSpeaker(sample_rate=24000) if play else None
 
     def clone(self) -> bool:
         return bool(self.ref_audio and self.ref_text)
@@ -59,6 +94,7 @@ class Engine:
                     f"就绪。克隆 {self.voice}  ref={self.ref_audio}",
                     flush=True,
                 )
+                self._warmup()
                 return
             speakers = []
             if hasattr(self.model, "get_supported_speakers"):
@@ -68,22 +104,53 @@ class Engine:
             self.error = str(exc)
             print(f"加载失败：{exc}", flush=True)
 
+    def _warmup(self) -> None:
+        if self.model is None or not self.clone():
+            return
+        t0 = time.monotonic()
+        list(
+            self.model.generate(
+                text="嗯。",
+                lang_code=DEFAULT_LANG,
+                verbose=False,
+                stream=False,
+                ref_audio=self.ref_audio,
+                ref_text=self.ref_text,
+            )
+        )
+        ms = max(0, int((time.monotonic() - t0) * 1000))
+        print(f"克隆预热 ms={ms}", flush=True)
+
     def ready(self) -> bool:
         return self.model is not None and self.error is None
 
-    def speak(self, text: str, voice: str | None, language: str | None) -> bytes:
+    def stop(self) -> None:
+        with self._play_lock:
+            with self._gate:
+                self._gen += 1
+            if self.speaker is not None:
+                self.speaker.flush()
+
+    def speak_token(self) -> int:
+        with self._gate:
+            return self._gen
+
+    def speak(self, text: str, voice: str | None, language: str | None, expected_gen: int | None = None) -> tuple[bytes, int]:
         if self.model is None:
             raise RuntimeError(self.error or "模型还没就绪")
         spoken = text.strip()
         if not spoken:
             raise ValueError("text 不能为空")
         lang = (language or DEFAULT_LANG).strip() or DEFAULT_LANG
+        use_stream = bool(self.play)
         kwargs: dict = {
             "text": spoken,
             "lang_code": lang,
             "verbose": False,
-            "stream": False,
+            "stream": use_stream,
         }
+        if use_stream:
+            kwargs["streaming_interval"] = STREAM_INTERVAL
         if self.clone():
             # ICL 要求 voice=None。Hub 仍可能发 Serena，这里丢掉。
             kwargs["ref_audio"] = self.ref_audio
@@ -92,17 +159,36 @@ class Engine:
             kwargs["voice"] = (voice or self.voice).strip() or self.voice
         chunks: list[np.ndarray] = []
         sample_rate = 24000
+        t0 = time.monotonic()
+        first_ms = 0
         with self.lock:
+            with self._play_lock:
+                with self._gate:
+                    if expected_gen is not None and self._gen != expected_gen:
+                        raise InterruptedError("stopped")
+                    my = self._gen
+                if self.speaker is not None:
+                    self.speaker.flush()
             for result in self.model.generate(**kwargs):
                 sample_rate = int(getattr(result, "sample_rate", sample_rate) or sample_rate)
-                audio = result.audio
-                chunks.append(np.asarray(audio))
+                audio = np.asarray(result.audio, dtype=np.float32)
+                if not chunks:
+                    first_ms = max(0, int((time.monotonic() - t0) * 1000))
+                chunks.append(audio)
+                with self._play_lock:
+                    with self._gate:
+                        if self._gen != my:
+                            if self.speaker is not None:
+                                self.speaker.flush()
+                            raise InterruptedError("stopped")
+                    if self.speaker is not None:
+                        self.speaker.queue_audio(audio)
         if not chunks:
             raise RuntimeError("模型没有发出声音")
         wav = np.concatenate(chunks, axis=0) if len(chunks) > 1 else chunks[0]
         buf = io.BytesIO()
         audio_write(buf, wav, sample_rate, format="wav")
-        return buf.getvalue()
+        return buf.getvalue(), first_ms
 
 
 def _ref_text_from_lab(audio_path: Path) -> str:
@@ -144,6 +230,7 @@ def make_handler(engine: Engine):
                         "model": engine.model_id,
                         "voice": engine.voice,
                         "clone": engine.clone(),
+                        "play": engine.play,
                         "ref_audio": engine.ref_audio,
                         "error": engine.error,
                     },
@@ -153,23 +240,45 @@ def make_handler(engine: Engine):
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path.rstrip("/") or "/"
-            if path != "/v1/speak":
-                self._json(404, {"error": {"code": "not_found", "message": "未知接口"}})
-                return
-            if not engine.ready():
-                self._json(
-                    503,
-                    {"error": {"code": "not_ready", "message": engine.error or "模型加载中"}},
-                )
-                return
             try:
                 body = self._read_json()
+                if path == "/v1/stop":
+                    engine.stop()
+                    print("tts latency turn=- stage=stopped", flush=True)
+                    self._json(200, {"ok": True, "stopped": True})
+                    return
+                if path != "/v1/speak":
+                    self._json(404, {"error": {"code": "not_found", "message": "未知接口"}})
+                    return
+                if not engine.ready():
+                    self._json(
+                        503,
+                        {"error": {"code": "not_ready", "message": engine.error or "模型加载中"}},
+                    )
+                    return
                 text = str(body.get("text") or "")
                 voice = body.get("voice")
                 language = body.get("language")
                 turn = str(body.get("turn_id") or "").strip() or "-"
+                play_only = bool(body.get("play_only"))
+                if play_only:
+                    spoken = text.strip()
+                    if not spoken:
+                        raise ValueError("text 不能为空")
+                    threading.Thread(
+                        target=_play_only,
+                        args=(engine, spoken, str(voice) if voice else None, str(language) if language else None, turn, engine.speak_token()),
+                        name=f"tts-play-{turn}",
+                        daemon=True,
+                    ).start()
+                    self._json(202, {"ok": True, "play": engine.play, "turn_id": turn})
+                    return
                 t0 = time.monotonic()
-                wav = engine.speak(text, str(voice) if voice else None, str(language) if language else None)
+                wav, first_ms = engine.speak(
+                    text,
+                    str(voice) if voice else None,
+                    str(language) if language else None,
+                )
             except ValueError as exc:
                 self._json(400, {"error": {"code": "bad_request", "message": str(exc)}})
                 return
@@ -178,13 +287,15 @@ def make_handler(engine: Engine):
                 return
             ms = max(0, int((time.monotonic() - t0) * 1000))
             print(
-                f"tts latency turn={turn} stage=speak_done ms={ms} bytes={len(wav)} chars={len(text.strip())}",
+                f"tts latency turn={turn} stage=speak_done first_ms={first_ms} "
+                f"ms={ms} bytes={len(wav)} chars={len(text.strip())} play={int(engine.play)}",
                 flush=True,
             )
             self.send_response(200)
             self.send_header("Content-Type", "audio/wav")
             self.send_header("Content-Length", str(len(wav)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-First-Audio-Ms", str(first_ms))
             self.end_headers()
             self.wfile.write(wav)
 
@@ -216,6 +327,32 @@ def make_handler(engine: Engine):
     return Handler
 
 
+def _play_only(
+    engine: Engine,
+    text: str,
+    voice: str | None,
+    language: str | None,
+    turn: str,
+    expected_gen: int,
+) -> None:
+    t0 = time.monotonic()
+    try:
+        wav, first_ms = engine.speak(text, voice, language, expected_gen=expected_gen)
+    except InterruptedError:
+        ms = max(0, int((time.monotonic() - t0) * 1000))
+        print(f"tts latency turn={turn} stage=play_stopped ms={ms}", flush=True)
+        return
+    except Exception as exc:  # noqa: BLE001
+        print(f"tts play_only turn={turn} error={exc}", flush=True)
+        return
+    ms = max(0, int((time.monotonic() - t0) * 1000))
+    print(
+        f"tts latency turn={turn} stage=play_only first_ms={first_ms} "
+        f"ms={ms} bytes={len(wav)} chars={len(text)} play={int(engine.play)}",
+        flush=True,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Helm companion TTS")
     parser.add_argument("--host", default="0.0.0.0")
@@ -233,16 +370,22 @@ def main() -> None:
         action="store_true",
         help=f"关掉克隆。Serena 例：--no-clone --model {CUSTOMVOICE_MODEL_ID} --voice Serena",
     )
+    parser.add_argument(
+        "--play",
+        action="store_true",
+        help="合成时在本机播放。Mini 需接耳机或外接音箱",
+    )
     args = parser.parse_args()
 
     ref_audio, ref_text = _resolve_refs(args)
-    engine = Engine(args.model, args.voice, ref_audio, ref_text)
+    engine = Engine(args.model, args.voice, ref_audio, ref_text, args.play)
     engine.load()
     if not engine.ready():
         raise SystemExit(1)
 
     server = ThreadingHTTPServer((args.host, args.port), make_handler(engine))
-    print(f"TTS 听 {args.host}:{args.port}  POST /v1/speak", flush=True)
+    extra = "  本机播放" if args.play else ""
+    print(f"TTS 听 {args.host}:{args.port}  POST /v1/speak /v1/stop{extra}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

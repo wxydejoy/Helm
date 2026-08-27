@@ -203,7 +203,7 @@ fun SettingsScreen(
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            "Windows Hub 与 Mac Mini 启动后会打印局域网地址。Mini 默认端口 17891。",
+            "Hub 填 Windows ${HubConnection.DEFAULT_HOST}:${HubConnection.DEFAULT_PORT}，Mini 填 ${MiniConnection.DEFAULT_HOST}:${MiniConnection.DEFAULT_PORT}，不要填反。",
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(horizontal = 4.dp),
         )
@@ -221,7 +221,7 @@ fun SettingsScreen(
                     onValueChange = { host = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("地址") },
-                    placeholder = { Text("192.168.1.12") },
+                    placeholder = { Text(HubConnection.DEFAULT_HOST) },
                     singleLine = true,
                     shape = MaterialTheme.shapes.small,
                     colors = fieldColors,

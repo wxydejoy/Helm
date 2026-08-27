@@ -365,6 +365,13 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onWakeWord(keyword: String = "岸宝", turnId: String = "") {
+        val interrupting = _ui.value.companionBusy ||
+            !_ui.value.companionReply.isNullOrBlank() ||
+            !_ui.value.companionHeard.isNullOrBlank()
+        if (interrupting) {
+            HelmLatency.log(turnId.ifBlank { voiceTurnId }.ifBlank { "-" }, "barge_in")
+        }
+        interruptCompanion()
         listeningJob?.cancel()
         rememberTurn(turnId)
         val wasSleeping = _ui.value.hubSleeping
@@ -709,13 +716,6 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         if (!app.online || app.id in _ui.value.busyIds) return
-        _ui.update {
-            it.copy(
-                winApps = it.winApps.map { item ->
-                    if (item.id == app.id) item.copy(running = true) else item
-                },
-            )
-        }
         sendCommand(app.id) {
             client.command(_ui.value.connection, app.id, run = true)
         }
@@ -774,7 +774,7 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendCompanion(text: String? = null) {
         val spoken = (text ?: _ui.value.companionDraft).trim()
-        if (spoken.isEmpty() || _ui.value.companionBusy) return
+        if (spoken.isEmpty()) return
         companionJob?.cancel()
         companionVoice.stop()
         val turn = ensureTurn()
@@ -826,7 +826,6 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     noteSubtitle(turn, reply.text.length)
                     holdSubtitle()
-                    playCompanionAudio(connection, reply.audioId, turn)
                 },
                 onFailure = { error ->
                     if (error is CancellationException) throw error
@@ -843,6 +842,34 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun interruptCompanion() {
+        companionJob?.cancel()
+        companionJob = null
+        companionVoice.stop()
+        subtitleJob?.cancel()
+        cueHubStop()
+        _ui.update {
+            it.copy(
+                companionBusy = false,
+                companionOpen = false,
+                companionDraft = "",
+                companionHeard = null,
+                companionReply = null,
+                companionError = null,
+            )
+        }
+    }
+
+    private fun cueHubStop() {
+        val connection = _ui.value.connection
+        if (!connection.isConfigured || _ui.value.preview) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                runCatching { client.companionStop(connection) }
+            }
+        }
+    }
+
     private fun noteSubtitle(turn: String, chars: Int) {
         subtitleAt = HelmLatency.now()
         HelmLatency.log(
@@ -850,28 +877,6 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
             "subtitle_shown",
             "since_wake_ms=${HelmLatency.ms(voiceTurnAt)} chars=$chars",
         )
-    }
-
-    private fun playCompanionAudio(connection: HubConnection, audioId: String?, turn: String) {
-        val id = audioId?.trim().orEmpty()
-        if (id.isEmpty()) return
-        viewModelScope.launch {
-            HelmLatency.log(turn, "audio_get_start")
-            val started = HelmLatency.now()
-            val wav = withContext(Dispatchers.IO) {
-                runCatching { client.companionAudio(connection, id) }.getOrNull()
-            }
-            if (wav == null) {
-                HelmLatency.log(turn, "audio_get_error", "ms=${HelmLatency.ms(started)}")
-                return@launch
-            }
-            HelmLatency.log(turn, "audio_get_done", "ms=${HelmLatency.ms(started)} bytes=${wav.size}")
-            companionVoice.play(wav, turn)
-            if (subtitleAt > 0L) {
-                HelmLatency.log(turn, "subtitle_to_audio", "ms=${HelmLatency.ms(subtitleAt)}")
-            }
-            HelmLatency.log(turn, "wake_to_audio", "ms=${HelmLatency.ms(voiceTurnAt)}")
-        }
     }
 
     private fun holdSubtitle() {
@@ -941,18 +946,11 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
                         val fromSnap = devices
                             .filter { it.deviceType() == DeviceType.Action }
                             .map { it.toWinApp() }
-                        val winApps = fromSnap.map { app ->
-                            if (app.id == updated.id && updated.deviceType() == DeviceType.Action) {
-                                app.copy(running = true)
-                            } else {
-                                app
-                            }
-                        }
                         state.copy(
                             busyIds = state.busyIds - deviceId,
                             stale = false,
                             snapshot = snap.copy(devices = devices),
-                            winApps = winApps.ifEmpty { state.winApps },
+                            winApps = fromSnap.ifEmpty { state.winApps },
                         )
                     }
                 },

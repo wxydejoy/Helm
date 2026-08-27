@@ -21,6 +21,8 @@ GENERIC_PROCESS_NAMES = {
     "pythonw.exe",
     "python",
     "python3",
+    "launcher.exe",
+    "wegame.exe",
 }
 
 
@@ -50,10 +52,10 @@ def process_names(cfg: DeviceConfig) -> list[str]:
     expanded = expand_path(program)
     if is_url(expanded):
         return []
-    name = Path(expanded).name.lower()
-    if not name or name in GENERIC_PROCESS_NAMES:
+    leaf = expanded.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].lower()
+    if not leaf or leaf in GENERIC_PROCESS_NAMES:
         return []
-    return [name]
+    return [leaf]
 
 
 def running_image_names() -> set[str]:

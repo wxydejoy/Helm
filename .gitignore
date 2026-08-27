@@ -1,6 +1,8 @@
 .venv/
 mini/.venv/
 mini/helm-mini.log
+companion/tts/.venv/
+companion/tts/.cache-base/
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -9,6 +11,8 @@ hub/build/
 hub/dist/
 hub/.pytest_cache/
 DockHub.exe
+/dist/
+nul
 android/.gradle/
 android/build/
 android/app/build/

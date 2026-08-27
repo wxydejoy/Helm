@@ -96,6 +96,11 @@ def make_handler(hub: DockHub) -> type[BaseHTTPRequestHandler]:
                     body = self._read_json()
                     self._json(200, hub.companion_chat(body))
                     return
+                if path == "/v1/companion/stop":
+                    self._require_auth()
+                    self._read_json()
+                    self._json(200, hub.companion_stop())
+                    return
                 prefix = "/v1/devices/"
                 suffix = "/command"
                 if not (path.startswith(prefix) and path.endswith(suffix)):

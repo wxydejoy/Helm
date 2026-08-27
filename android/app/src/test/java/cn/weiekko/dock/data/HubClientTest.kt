@@ -45,6 +45,35 @@ class HubClientTest {
     }
 
     @Test
+    fun healthRejectsMiniIp() {
+        val wrong = HubConnection(host = MiniConnection.DEFAULT_HOST, port = 17890, token = "secret")
+        try {
+            client.health(wrong)
+            throw AssertionError("expected HubException")
+        } catch (e: HubException) {
+            assertEquals("bad_request", e.code)
+            assertTrue(e.message!!.contains(HubConnection.DEFAULT_HOST))
+        }
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun healthRejectsMiniNamedHub() {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ok":true,"service":"dock-hub","protocol":1,"name":"mini"}""",
+            ),
+        )
+        try {
+            client.health(connection)
+            throw AssertionError("expected HubException")
+        } catch (e: HubException) {
+            assertEquals("bad_request", e.code)
+            assertTrue(e.message!!.contains(HubConnection.DEFAULT_HOST))
+        }
+    }
+
+    @Test
     fun snapshotParsesTemperatureAndDevices() {
         server.enqueue(
             MockResponse().setBody(
@@ -160,6 +189,15 @@ class HubClientTest {
         assertEquals("abc123def456", reply.audioId)
         val raw = server.takeRequest().body.readUtf8()
         assertTrue(raw.contains("\"turn_id\":\"abc123def456\""))
+    }
+
+    @Test
+    fun companionStopPostsPath() {
+        server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+        client.companionStop(connection)
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertTrue(request.path!!.endsWith("/v1/companion/stop"))
     }
 
     @Test

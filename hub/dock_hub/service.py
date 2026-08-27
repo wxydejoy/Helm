@@ -162,6 +162,9 @@ class DockHub:
     def companion_audio(self, audio_id: str) -> bytes:
         return self.companion.audio(audio_id)
 
+    def companion_stop(self) -> dict[str, Any]:
+        return self.companion.stop()
+
     def command(self, device_id: str, body: dict[str, Any] | None) -> dict[str, Any]:
         if not isinstance(body, dict) or not body:
             raise HubError("bad_request", "命令不能为空")

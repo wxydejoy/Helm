@@ -17,6 +17,12 @@ class HubClient(
     private val json: Json = defaultJson(),
 ) {
     fun health(connection: HubConnection): Health {
+        if (connection.isMiniHost()) {
+            throw HubException(
+                "bad_request",
+                "Hub 填成了 Mini 的 IP。请改成 Windows：${HubConnection.DEFAULT_HOST}",
+            )
+        }
         val request = Request.Builder()
             .url("${connection.baseUrl()}/health")
             .get()
@@ -25,6 +31,12 @@ class HubClient(
         val health = decode<Health>(body)
         if (health.service != "dock-hub") {
             throw HubException("bad_request", "这不是 Helm Hub（service=${health.service}）")
+        }
+        if (health.name.equals("mini", ignoreCase = true)) {
+            throw HubException(
+                "bad_request",
+                "连到了 Mini 上的 dock-hub，不是 Windows Hub。请填 ${HubConnection.DEFAULT_HOST}",
+            )
         }
         if (health.protocol < 1) {
             throw HubException("bad_request", "Hub 协议版本过低：${health.protocol}")
@@ -112,6 +124,13 @@ class HubClient(
             .build()
         val body = execute(request, readTimeoutMs = COMPANION_TIMEOUT_MS)
         return decode(body)
+    }
+
+    fun companionStop(connection: HubConnection) {
+        val request = authorized(connection, "/v1/companion/stop")
+            .post("{}".toRequestBody(JSON))
+            .build()
+        execute(request, readTimeoutMs = STOP_TIMEOUT_MS, expectAuthError = false)
     }
 
     fun companionAudio(connection: HubConnection, audioId: String): ByteArray {
@@ -216,6 +235,7 @@ class HubClient(
         const val SNAPSHOT_TIMEOUT_MS = 5_000L
         const val COMMAND_TIMEOUT_MS = 10_000L
         const val COMPANION_TIMEOUT_MS = 30_000L
+        const val STOP_TIMEOUT_MS = 2_000L
         private val AUDIO_ID = Regex("^[A-Za-z0-9._-]+$")
         private val JSON = "application/json; charset=utf-8".toMediaType()
 

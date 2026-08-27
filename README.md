@@ -1,23 +1,25 @@
 # Helm（Dock）
 
-横屏安卓桌面摆件 + Windows Python Hub：显示天气与室内温湿度、电脑监控，控制米家设备，一键启动电脑上的白名单程序。
+横屏安卓桌面摆件 + Windows Python Hub：显示天气与室内温湿度、电脑监控，控制米家设备，一键启动电脑上的白名单程序。桌上的守岸人走局域网：K20 听和出字幕，Windows 当门口，Mac Mini 跑模型并在本机喇叭说话。
 
 ![Helm 主屏](docs/screenshots/home.gif)
 
-手机只通过局域网 HTTP 与 Hub 通信，不直连米家。协议是两边的唯一契约：
+手机只通过局域网 HTTP 与 Hub 通信，不直连米家、Ollama 或 TTS。协议是两边的唯一契约：
 
 - [docs/lan-protocol.md](docs/lan-protocol.md) — 说明、时序、验收
 - [docs/openapi.yaml](docs/openapi.yaml) — OpenAPI 3
+- [docs/companion.md](docs/companion.md) — 守岸人拓扑、打断、TTS
 
-默认 Hub `http://<Windows局域网IP>:17890`（Bearer token）。Mac Mini 监控另开 `http://<Mini局域网IP>:17891`。
+默认 Hub `http://10.83.22.31:17890`（Windows，Bearer token）。Mac Mini 监控另开 `http://10.83.22.121:17891`。脑和嘴在 Mini：Ollama `:11434`，TTS `:18100`。
 
 ## 仓库结构
 
 | 目录 | 说明 |
 |------|------|
 | [android/](android/) | 安卓客户端（Kotlin / Jetpack Compose） |
-| [hub/](hub/README.md) | Windows Hub（米家 + 本机启动 + PC 监控 + 托盘 exe） |
-| [mini/](mini/README.md) | Mac Mini 本机 CPU / 内存 / GPU |
+| [hub/](hub/README.md) | Windows Hub（米家 + 本机启动 + PC 监控 + 托盘 exe + 伴侣转发） |
+| [mini/](mini/README.md) | Mac Mini 本机 CPU / 内存 / GPU（`:17891`） |
+| [companion/tts/](companion/tts/README.md) | Mini 守岸人 TTS（`:18100 --play`） |
 | [docs/](docs/) | 局域网协议（改接口先改文档） |
 
 ## 安卓（客户端）
@@ -32,12 +34,12 @@
 - **右侧**：米家灯/开关 + **手机媒体控制**（上一首 / 播放暂停 / 下一首）
 - **底部**：室外天气 + 室内温湿度
 - 可选**视频背景**（循环静音）；方块样式（磨砂 / 深色 / 实心 / 细线）与透明度可调
-- **语音唤醒**：说「岸宝」亮屏，并把你说的话显示在主屏（手机端离线识别，暂不调用 AI）
+- **语音唤醒**：说「岸宝」听你说话，字幕显示守岸人的回复；声音从 Mini 喇叭出。她正在说时再喊「岸宝」会打断并停播
 - **主屏编排**：长按模块可拖动、缩放；可隐藏模块或去掉背景边框
 
 ### 设置
 
-- Hub：**地址 / 端口 / Token**，测试连接（`/health`）
+- Hub：**地址 / 端口 / Token**。填 Windows `10.83.22.31`、`17890`，不要填 Mini 的 IP
 - Mac Mini：**默认地址 `10.83.22.121:17891`，默认 Token 已填**
 - 视频背景：选择 / 更换 / 清除本地视频
 - 方块样式与字体排版预览
@@ -89,9 +91,10 @@ uv run dock-hub --login    # 米家过期时重新扫码
 
 ## 联机速查
 
-1. Windows 启动 Hub，记下局域网 IP（如 `10.83.22.31`）与 `hub.yaml` 里的 token
-2. 安卓设置页填入 IP、端口 `17890`、token，点测试连接
-3. 米家设备名在 Hub 侧用 `uv run dock-hub --list-devices` 核对
+1. Windows 启动 Hub，记下局域网 IP（**`10.83.22.31`**）与 `hub.yaml` 里的 token
+2. 安卓设置页 Hub 填该 IP、端口 `17890`、token，点测试连接（不要填 Mini `10.83.22.121`）
+3. Mini 上启动 Ollama 与 [companion/tts](companion/tts/README.md) `--play`；Hub 的 `companion.llm` / `tts` 指向 Mini
+4. 米家设备名在 Hub 侧用 `uv run dock-hub --list-devices` 核对
 
 ## 许可
 

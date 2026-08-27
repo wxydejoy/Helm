@@ -72,6 +72,25 @@ paths:
           $ref: "#/components/responses/Error"
         "502":
           $ref: "#/components/responses/Error"
+  /v1/companion/stop:
+    post:
+      summary: Stop companion speech on Mini speakers
+      operationId: postCompanionStop
+      responses:
+        "200":
+          description: Playback stopped, or nothing was playing
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /v1/companion/audio/{id}:
     get:
       summary: Fetch one companion wav (home LAN only)
@@ -211,6 +230,7 @@ components:
           description: >
             Desk companion. null when disabled in hub.yaml.
             Talk via POST /v1/companion/chat.
+            Barge-in via POST /v1/companion/stop.
         devices:
           type: array
           items:
@@ -358,6 +378,7 @@ components:
         audio_id:
           type: string
           nullable: true
+          description: Null unless companion.tts.deliver is true and TTS succeeded.
     Device:
       type: object
       required: [id, name, type, online]
