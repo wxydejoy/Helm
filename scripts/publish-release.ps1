@@ -10,7 +10,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$repo = "wxydejoy/Helm"
+$repo = "wxydejoy/Shoreting"
 
 $credText = "protocol=https`nhost=github.com`n`n" | git credential fill 2>$null
 $token = ($credText | Select-String '^password=(.+)$').Matches.Groups[1].Value

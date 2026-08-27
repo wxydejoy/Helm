@@ -2,7 +2,7 @@
 
 守岸人在漂泊者书桌上值班。横屏安卓是亭子的脸和字幕，Windows Hub 当门口，Mac Mini 跑模型并在本机喇叭说话。亭里还能看天气与室内温湿度、电脑监控，控制米家设备，一键启动电脑上的白名单程序。
 
-当前安卓 **0.3.7**。权威仓库在 Mac：`/Users/weiekko/dock/`，remote `git@github.com:wxydejoy/Helm.git`，分支 `main`。
+当前安卓 **0.3.7**。权威仓库在 Mac：`/Users/weiekko/dock/`，remote `git@github.com:wxydejoy/Shoreting.git`，分支 `main`。
 
 ![岸亭主屏](docs/screenshots/home.gif)
 
