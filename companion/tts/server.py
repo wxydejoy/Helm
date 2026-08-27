@@ -354,7 +354,7 @@ def _play_only(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Helm companion TTS")
+    parser = argparse.ArgumentParser(description="Shoreting companion TTS")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=18100)
     parser.add_argument("--model", default=MODEL_ID)

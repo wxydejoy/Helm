@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Helm"
+rootProject.name = "Shoreting"
 include(":app")

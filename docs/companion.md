@@ -11,7 +11,7 @@
 下面 IP 是**本宅当前地址**。换网络请改成自己的，安卓默认值也在 `HubPreferences` / `MiniConnection` 里。
 
 ```
-K20 Helm（脸+耳+字幕）
+K20 岸亭（脸+耳+字幕）
    Bearer ──►  Windows Hub :17890（门口）
                   ├─ 米家 / 开程序 / pc / 媒体
                   ├─ chat → Mini Ollama :11434

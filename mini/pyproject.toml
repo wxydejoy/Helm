@@ -1,7 +1,7 @@
 [project]
 name = "helm-mini"
 version = "0.1.0"
-description = "Mac Mini 本机 CPU / 内存 / GPU 采样，给 Helm 主屏第二行用。"
+description = "Mac Mini 本机 CPU / 内存 / GPU 采样，给岸亭主屏第二行用。"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "psutil>=6.0",

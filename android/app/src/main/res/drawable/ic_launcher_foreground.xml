@@ -4,7 +4,7 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Helm wheel: 8 spokes + rim + hub, cream on adaptive foreground -->
+    <!-- Wheel: 8 spokes + rim + hub, cream on adaptive foreground -->
     <group
         android:pivotX="54"
         android:pivotY="54">

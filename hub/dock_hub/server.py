@@ -166,7 +166,7 @@ def serve(hub: DockHub, *, blocking: bool = True) -> ThreadingHTTPServer:
     handler = make_handler(hub)
     server = ThreadingHTTPServer((hub.config.host, hub.config.port), handler)
     ips = lan_ips()
-    print(f"Dock Hub v1  http://{ips[0]}:{hub.config.port}", flush=True)
+    print(f"岸亭 Hub v1  http://{ips[0]}:{hub.config.port}", flush=True)
     for extra in ips[1:]:
         print(f"             http://{extra}:{hub.config.port}", flush=True)
     print(f"配置向导     http://127.0.0.1:{hub.config.port}/setup  （仅本机）", flush=True)
@@ -174,7 +174,7 @@ def serve(hub: DockHub, *, blocking: bool = True) -> ThreadingHTTPServer:
         print(f"配置         {hub.config.path}", flush=True)
     print("Windows 防火墙请放行入站 TCP 17890：", flush=True)
     print(
-        '  netsh advfirewall firewall add rule name="Dock Hub" '
+        '  netsh advfirewall firewall add rule name="Shoreting Hub" '
         "dir=in action=allow protocol=TCP localport=17890",
         flush=True,
     )

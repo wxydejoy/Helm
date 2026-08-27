@@ -1,6 +1,6 @@
-# Helm Mini
+# 岸亭 Mini
 
-Mac Mini 上的**本机监控**：CPU / 内存 / GPU，给 Helm 主屏 CPU 块的**第二行**用。
+Mac Mini 上的**本机监控**：CPU / 内存 / GPU，给岸亭主屏 CPU 块的**第二行**用。
 
 这不是 Hub，也不是 TTS / Ollama。
 

@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Helm LAN Protocol
+  title: Shoreting LAN Protocol
   version: "1"
   description: >
     Android desk gadget ↔ Python Hub on the local network.
@@ -27,7 +27,7 @@ paths:
       security: []
       responses:
         "200":
-          description: This process is a Helm Hub
+          description: This process is a Shoreting Hub
           content:
             application/json:
               schema:

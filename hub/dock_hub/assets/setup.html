@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dock Hub 配置向导</title>
+  <title>岸亭 Hub 配置向导</title>
   <style>
     :root { --bg:#0f1419; --card:#1a2332; --line:#2a3544; --text:#e8eef7; --muted:#8fa3bd; --accent:#3b82f6; --ok:#22c55e; --warn:#f59e0b; }
     * { box-sizing: border-box; }
@@ -76,13 +76,13 @@
 <body>
   <div class="wrap">
     <div class="title-row">
-      <h1>Dock Hub 配置向导</h1>
+      <h1>岸亭 Hub 配置向导</h1>
       <span id="saveStatus" class="pill pending">同步中…</span>
     </div>
     <p class="sub">只在<strong>本机</strong>打开。修改后会<strong>自动保存并生效</strong>，无需点保存按钮。</p>
 
     <div class="card">
-      <h2>① 复制到安卓（Helm 设置页）</h2>
+      <h2>① 复制到安卓（岸亭设置页）</h2>
       <div class="split">
         <div>
           <p class="hint" style="margin-top:0">这三项对应安卓设置里的「地址 / 端口 / Token」。手机和电脑须在同一 Wi‑Fi 或局域网。</p>
@@ -101,10 +101,10 @@
           <p class="hint">Hub 名称：<input id="name" style="margin-top:6px" placeholder="study" />（测试连接成功后会显示这个名字）</p>
         </div>
         <div>
-          <p class="hint" style="margin-top:0"><strong>安卓端怎么用</strong>（App 名：<strong>Helm</strong>）</p>
+          <p class="hint" style="margin-top:0"><strong>安卓端怎么用</strong>（App 名：<strong>岸亭</strong>）</p>
           <ol class="steps">
-            <li>安装 APK：从 <a href="https://github.com/wxydejoy/Helm/releases" target="_blank" rel="noopener" style="color:#93c5fd">GitHub Release</a> 下载 <code>Helm-*.apk</code>，允许「安装未知应用」。</li>
-            <li>打开 Helm（横屏全屏）。未连 Hub 前是<strong>预览模式</strong>，数据是假的。</li>
+            <li>安装 APK：从 <a href="https://github.com/wxydejoy/Helm/releases" target="_blank" rel="noopener" style="color:#93c5fd">GitHub Release</a> 下载 APK（文件名可能仍是 <code>Helm-*.apk</code>），允许「安装未知应用」。</li>
+            <li>打开岸亭（横屏全屏）。未连 Hub 前是<strong>预览模式</strong>，数据是假的。</li>
             <li>点主屏顶部<strong> PC 监控条</strong>（CPU / 内存那一行）进入<strong>设置</strong>。</li>
             <li>填入：<br>
               「地址」→ <code id="guideIp">…</code><br>
@@ -117,7 +117,7 @@
           <div class="note">
             <strong>连不上？</strong>
             <ul>
-              <li>确认 Windows 上 Dock Hub 正在运行（托盘有图标）</li>
+              <li>确认 Windows 上岸亭 Hub 正在运行（托盘有图标）</li>
               <li>手机和电脑是否同一局域网（不要一个 Wi‑Fi 一个有线不同网段）</li>
               <li>Windows 防火墙放行 TCP <code id="guidePort2">17890</code>（Hub 日志里有命令）</li>
               <li>Token 是否与上面完全一致（重新生成 Token 后安卓也要改）</li>
@@ -185,12 +185,12 @@
           <strong>PawnIO</strong> 是 Windows 上的一个小驱动，让普通程序能读到 CPU 温度传感器。
           Hub 通过它把温度发给安卓；<strong>不装也不影响</strong>开关灯、启动程序等其他功能，只是主屏上没有 CPU 温度数字。
         </p>
-        <p class="hint"><strong>还需要：</strong>Dock Hub 必须<strong>以管理员身份运行</strong>（右键 exe → 以管理员身份运行，或用 <code>run-admin.ps1</code>）。</p>
+        <p class="hint"><strong>还需要：</strong>岸亭 Hub 必须<strong>以管理员身份运行</strong>（右键 exe → 以管理员身份运行，或用 <code>run-admin.ps1</code>）。</p>
         <ol>
           <li>右键「终端 / PowerShell」→ <strong>以管理员身份运行</strong></li>
           <li>执行安装命令（推荐）：<br><code>winget install -e --id namazso.PawnIO</code></li>
           <li>没有 winget 时：打开 <a href="https://github.com/namazso/PawnIO/releases" target="_blank" rel="noopener" style="color:#93c5fd">GitHub Release</a> 或 <a href="https://pawnio.eu/" target="_blank" rel="noopener" style="color:#93c5fd">pawnio.eu</a> 下载安装包，双击安装</li>
-          <li>装完后<strong>退出 Hub 托盘</strong>，再<strong>以管理员身份</strong>重新启动 Dock Hub</li>
+          <li>装完后<strong>退出 Hub 托盘</strong>，再<strong>以管理员身份</strong>重新启动岸亭 Hub</li>
           <li>安卓主屏 PC 监控条里应出现 CPU 温度；若没有，看日志 <code>%USERPROFILE%\.config\dock-hub\hub.log</code></li>
         </ol>
       </details>
@@ -198,12 +198,12 @@
 
     <div class="card">
       <h2>⑥ 安卓可选设置</h2>
-      <p class="hint" style="margin-top:0">都在 Helm 的<strong>设置页</strong>（同样点顶部 PC 监控条进入）：</p>
+      <p class="hint" style="margin-top:0">都在岸亭的<strong>设置页</strong>（同样点顶部 PC 监控条进入）：</p>
       <ul class="hint" style="padding-left:18px; margin-top:8px">
         <li><strong>视频背景</strong>：选本地横屏视频，循环静音播放</li>
         <li><strong>方块样式 / 字体</strong>：调整主屏磁贴外观和时钟字号</li>
         <li><strong>插电亮屏、拔电熄屏</strong>：需授予设备管理员（仅用于锁屏）</li>
-        <li><strong>媒体控制</strong>（右侧上一首 / 播放 / 下一首）：需在系统里开启 Helm 的<strong>通知使用权</strong></li>
+        <li><strong>媒体控制</strong>（右侧上一首 / 播放 / 下一首）：需在系统里开启岸亭的<strong>通知使用权</strong></li>
       </ul>
     </div>
   </div>

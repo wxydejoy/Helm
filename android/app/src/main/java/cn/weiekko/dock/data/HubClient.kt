@@ -30,7 +30,7 @@ class HubClient(
         val body = execute(request, readTimeoutMs = SNAPSHOT_TIMEOUT_MS, expectAuthError = false)
         val health = decode<Health>(body)
         if (health.service != "dock-hub") {
-            throw HubException("bad_request", "这不是 Helm Hub（service=${health.service}）")
+            throw HubException("bad_request", "这不是岸亭 Hub（service=${health.service}）")
         }
         if (health.name.equals("mini", ignoreCase = true)) {
             throw HubException(
@@ -52,7 +52,7 @@ class HubClient(
         val body = execute(request, readTimeoutMs = SNAPSHOT_TIMEOUT_MS, expectAuthError = false)
         val health = decode<Health>(body)
         if (health.service != "helm-mini") {
-            throw HubException("bad_request", "这不是 Helm Mini（service=${health.service}）")
+            throw HubException("bad_request", "这不是岸亭 Mini（service=${health.service}）")
         }
         if (health.protocol < 1) {
             throw HubException("bad_request", "Mini 协议版本过低：${health.protocol}")

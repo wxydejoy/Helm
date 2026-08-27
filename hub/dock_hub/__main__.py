@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run(argv: list[str] | None) -> int:
-    parser = argparse.ArgumentParser(prog="dock-hub", description="Dock LAN Protocol v1 Hub")
+    parser = argparse.ArgumentParser(prog="dock-hub", description="Shoreting LAN Protocol v1 Hub")
     parser.add_argument("--config", type=Path, help="hub.yaml 路径")
     parser.add_argument("--init", action="store_true", help="生成一份带随机 token 的配置")
     parser.add_argument("--list-devices", action="store_true", help="列出米家设备名")
@@ -100,7 +100,7 @@ def _force_login() -> int:
     except Exception as exc:
         print(f"登录失败：{exc}", file=sys.stderr)
         return 1
-    print("完成。可重新启动 Dock Hub。", flush=True)
+    print("完成。可重新启动岸亭 Hub。", flush=True)
     return 0
 
 

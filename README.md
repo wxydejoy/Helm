@@ -1,10 +1,10 @@
-# Helm（Dock）
+# 岸亭（Shoreting）
 
-横屏安卓桌面摆件 + Windows Python Hub：显示天气与室内温湿度、电脑监控，控制米家设备，一键启动电脑上的白名单程序。桌上的守岸人走局域网：K20 听和出字幕，Windows 当门口，Mac Mini 跑模型并在本机喇叭说话。
+守岸人在漂泊者书桌上值班。横屏安卓是亭子的脸和字幕，Windows Hub 当门口，Mac Mini 跑模型并在本机喇叭说话。亭里还能看天气与室内温湿度、电脑监控，控制米家设备，一键启动电脑上的白名单程序。
 
 当前安卓 **0.3.7**。权威仓库在 Mac：`/Users/weiekko/dock/`，remote `git@github.com:wxydejoy/Helm.git`，分支 `main`。
 
-![Helm 主屏](docs/screenshots/home.gif)
+![岸亭主屏](docs/screenshots/home.gif)
 
 手机只通过局域网 HTTP 与 Hub 通信，不直连米家、Ollama 或 TTS。协议是两边的唯一契约：
 
@@ -26,7 +26,7 @@
 
 ## 安卓（客户端）
 
-横屏全屏 Dock，未配置 Hub 时进入**预览模式**（本地演示数据）。构建见 [android/README.md](android/README.md)。
+横屏全屏摆件，未配置 Hub 时进入**预览模式**（本地演示数据）。构建见 [android/README.md](android/README.md)。
 
 ### 主屏
 

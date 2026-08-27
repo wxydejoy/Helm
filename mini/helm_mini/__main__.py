@@ -11,7 +11,7 @@ from helm_mini.server import lan_ips, serve
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Helm Mini 本机监控")
+    parser = argparse.ArgumentParser(description="岸亭 Mini 本机监控")
     parser.add_argument("--host", default=os.environ.get("HELM_MINI_HOST", "0.0.0.0"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("HELM_MINI_PORT", "17891")))
     parser.add_argument("--name", default=os.environ.get("HELM_MINI_NAME", "mini"))
@@ -31,7 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, shutdown)
 
     ips = lan_ips()
-    print(f"Helm Mini  :{args.port}  ({args.name})", flush=True)
+    print(f"岸亭 Mini  :{args.port}  ({args.name})", flush=True)
     for ip in ips:
         print(f"  探活  http://{ip}:{args.port}/health", flush=True)
         print(f"  状态  http://{ip}:{args.port}/v1/snapshot", flush=True)

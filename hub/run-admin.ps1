@@ -1,4 +1,4 @@
-# 以管理员、无黑窗口启动 Dock Hub（CPU 温度需要管理员）。
+# 以管理员、无黑窗口启动岸亭 Hub（CPU 温度需要管理员）。
 # 日志：%USERPROFILE%\.config\dock-hub\hub.log
 # 启动记录：%USERPROFILE%\.config\dock-hub\start.log
 $ErrorActionPreference = "Stop"

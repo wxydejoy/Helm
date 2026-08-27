@@ -1,6 +1,6 @@
-# Dock Hub（Windows）
+# 岸亭 Hub（Windows）
 
-电脑上的 Python 服务：对内调 [mijia-api](https://github.com/Do1e/mijia-api)、采集本机性能、按白名单启动本机程序，并作为本地大脑 / TTS 的客户端；对外只提供 [Dock LAN Protocol v1](../docs/lan-protocol.md) 的 HTTP 接口。
+电脑上的 Python 服务：对内调 [mijia-api](https://github.com/Do1e/mijia-api)、采集本机性能、按白名单启动本机程序，并作为本地大脑 / TTS 的客户端；对外只提供 [Shoreting LAN Protocol v1](../docs/lan-protocol.md) 的 HTTP 接口。
 
 安卓不直连米家，也看不到 `did` / 可执行文件路径。依赖 GPL-3.0 的 mijia-api：自用没问题；若分发 Hub，需要同样开源。
 
@@ -108,7 +108,7 @@ powershell -ExecutionPolicy Bypass -File .\run-admin.ps1
 
 **是什么：** [PawnIO](https://pawnio.eu/) 是 Windows 上的小型驱动，让程序能读取 CPU 温度传感器。Hub 用它把温度显示在安卓主屏；**不装也能正常用** Hub 的其他功能，只是没有 CPU 温度这一项。
 
-**还需要：** Dock Hub 必须以**管理员**运行（右键 `DockHub.exe` → 以管理员身份运行，或 `run-admin.ps1`）。
+**还需要：** 岸亭 Hub 必须以**管理员**运行（右键 `DockHub.exe` → 以管理员身份运行，或 `run-admin.ps1`）。
 
 **安装（任选一种）：**
 
@@ -126,7 +126,7 @@ winget install -e --id namazso.PawnIO
 ### 防火墙（管理员 PowerShell）
 
 ```powershell
-netsh advfirewall firewall add rule name="Dock Hub" dir=in action=allow protocol=TCP localport=17890
+netsh advfirewall firewall add rule name="Shoreting Hub" dir=in action=allow protocol=TCP localport=17890
 ```
 
 ## 自测

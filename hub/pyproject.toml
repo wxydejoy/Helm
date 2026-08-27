@@ -1,7 +1,7 @@
 [project]
 name = "dock-hub"
 version = "0.1.0"
-description = "Dock LAN Protocol v1 Hub for Windows (mijia-api + local launch)"
+description = "Shoreting LAN Protocol v1 Hub for Windows (mijia-api + local launch)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "GPL-3.0-only" }

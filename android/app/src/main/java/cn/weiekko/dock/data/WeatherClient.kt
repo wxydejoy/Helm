@@ -196,7 +196,7 @@ class WeatherClient(
     }
 
     companion object {
-        const val USER_AGENT = "Helm/0.3 (cn.weiekko.dock; weather)"
+        const val USER_AGENT = "Shoreting/0.3 (cn.weiekko.dock; weather)"
 
         fun defaultJson(): Json = Json {
             ignoreUnknownKeys = true

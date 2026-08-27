@@ -52,6 +52,6 @@ curl -s -o /dev/null -w '%{http_code}\n' -H 'Content-Type: application/json' \
 curl -s -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:18100/v1/stop
 ```
 
-## 和 Helm 的关系
+## 和岸亭的关系
 
 完整拓扑、Hub 怎么 cue、安卓为什么不播 wav：见 [docs/companion.md](../../docs/companion.md)。

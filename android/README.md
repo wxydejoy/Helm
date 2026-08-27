@@ -1,6 +1,6 @@
-# 安卓客户端（Helm）
+# 安卓客户端（岸亭）
 
-横屏全屏 Dock，包名 `cn.weiekko.dock`。当前 debug：**0.3.7**（`versionCode` 10）。
+横屏全屏摆件，包名 `cn.weiekko.dock`。当前 debug：**0.3.7**（`versionCode` 10）。
 
 未配置 Hub 时是预览模式（本地演示数据）。联机后只通过局域网 HTTP 跟 **Windows Hub** 说话，不直连米家、Ollama、TTS。
 

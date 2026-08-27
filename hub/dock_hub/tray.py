@@ -1,4 +1,4 @@
-"""Windows system tray for Dock Hub."""
+"""Windows system tray for 岸亭 Hub."""
 
 from __future__ import annotations
 
@@ -47,5 +47,5 @@ def run_tray(hub: "DockHub", stop_server: Callable[[], None], status_line: str) 
         pystray.Menu.SEPARATOR,
         Item("退出", quit_app),
     )
-    icon = pystray.Icon("dock-hub", load_tray_image(), "Dock Hub", menu)
+    icon = pystray.Icon("dock-hub", load_tray_image(), "Shoreting Hub", menu)
     icon.run()
