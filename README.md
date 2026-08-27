@@ -9,7 +9,7 @@
 - [docs/lan-protocol.md](docs/lan-protocol.md) — 说明、时序、验收
 - [docs/openapi.yaml](docs/openapi.yaml) — OpenAPI 3
 
-默认 `http://<电脑局域网IP>:17890`，共享 Bearer token。
+默认 Hub `http://<Windows局域网IP>:17890`（Bearer token）。Mac Mini 监控另开 `http://<Mini局域网IP>:17891`。
 
 ## 仓库结构
 
@@ -17,6 +17,7 @@
 |------|------|
 | [android/](android/) | 安卓客户端（Kotlin / Jetpack Compose） |
 | [hub/](hub/README.md) | Windows Hub（米家 + 本机启动 + PC 监控 + 托盘 exe） |
+| [mini/](mini/README.md) | Mac Mini 本机 CPU / 内存 / GPU |
 | [docs/](docs/) | 局域网协议（改接口先改文档） |
 
 ## 安卓（客户端）
@@ -26,17 +27,18 @@
 ### 主屏
 
 - 大时钟 + 中文日期（多种字体与字号）
-- **PC 监控条**：CPU / 内存 / GPU / FPS（有数据时约 3s 刷新）— 点击进入设置
+- **PC 监控条**：第一行 Windows CPU / 内存 / GPU / FPS，第二行 Mac Mini CPU / 内存 / GPU（约 3s 刷新）— 点击进入设置
 - **左侧**：最多 3 个 Windows 应用快捷启动（Remix 图标）
 - **右侧**：米家灯/开关 + **手机媒体控制**（上一首 / 播放暂停 / 下一首）
 - **底部**：室外天气 + 室内温湿度
 - 可选**视频背景**（循环静音）；方块样式（磨砂 / 深色 / 实心 / 细线）与透明度可调
-- **语音唤醒**：说「岸宝」亮屏并进入聆听（手机端离线关键词检测）
+- **语音唤醒**：说「岸宝」亮屏，并把你说的话显示在主屏（手机端离线识别，暂不调用 AI）
 - **主屏编排**：长按模块可拖动、缩放；可隐藏模块或去掉背景边框
 
 ### 设置
 
 - Hub：**地址 / 端口 / Token**，测试连接（`/health`）
+- Mac Mini：**默认地址 `10.83.22.121:17891`，默认 Token 已填**
 - 视频背景：选择 / 更换 / 清除本地视频
 - 方块样式与字体排版预览
 - **插电亮屏、拔电熄屏**（需设备管理员，仅用于 `lockNow()`）

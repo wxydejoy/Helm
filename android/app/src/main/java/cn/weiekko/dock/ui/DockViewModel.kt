@@ -18,7 +18,9 @@ import cn.weiekko.dock.data.HubException
 import cn.weiekko.dock.data.HubNetworkException
 import cn.weiekko.dock.data.HubPreferences
 import cn.weiekko.dock.data.MediaInfo
+import cn.weiekko.dock.data.MiniConnection
 import cn.weiekko.dock.data.ModuleRect
+import cn.weiekko.dock.data.PcStatus
 import cn.weiekko.dock.data.Snapshot
 import cn.weiekko.dock.data.WeatherClient
 import cn.weiekko.dock.data.WeatherInfo
@@ -35,6 +37,8 @@ import cn.weiekko.dock.data.snap
 import cn.weiekko.dock.data.toWinApp
 import cn.weiekko.dock.media.PhoneMedia
 import cn.weiekko.dock.power.ScreenCommand
+import cn.weiekko.dock.voice.CompanionVoice
+import cn.weiekko.dock.voice.HelmLatency
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -57,7 +61,10 @@ import java.io.File
 data class DockUiState(
     val prefsReady: Boolean = false,
     val connection: HubConnection = HubConnection(),
+    val miniConnection: MiniConnection = MiniConnection(),
     val snapshot: Snapshot? = null,
+    val miniPc: PcStatus? = null,
+    val miniStale: Boolean = false,
     val stale: Boolean = false,
     val banner: String? = null,
     val busyIds: Set<String> = emptySet(),
@@ -82,9 +89,17 @@ data class DockUiState(
     val hubSleeping: Boolean = false,
     val wakeWordEnabled: Boolean = true,
     val voiceListening: Boolean = false,
+    val voiceText: String = "",
+    val voiceSettled: Boolean = false,
     val layout: DockLayout = DockLayout(),
     val editing: Boolean = false,
     val selectedModule: DockModule? = null,
+    val companionOpen: Boolean = false,
+    val companionDraft: String = "",
+    val companionHeard: String? = null,
+    val companionReply: String? = null,
+    val companionBusy: Boolean = false,
+    val companionError: String? = null,
 ) {
     val configured: Boolean get() = connection.isConfigured
 }
@@ -94,6 +109,7 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
     private val client = HubClient()
     private val weatherClient = WeatherClient()
     private val phoneMedia = PhoneMedia(application)
+    private val companionVoice = CompanionVoice(application)
 
     private val _ui = MutableStateFlow(DockUiState())
     val ui: StateFlow<DockUiState> = _ui.asStateFlow()
@@ -108,6 +124,7 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
     val screenCommands: SharedFlow<ScreenCommand> = _screenCommands.asSharedFlow()
 
     private var pollJob: Job? = null
+    private var miniPollJob: Job? = null
     private var hubSleepJob: Job? = null
     private var listeningJob: Job? = null
     private var disconnectedAt: Long? = null
@@ -115,6 +132,11 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
     private var typeLookJob: Job? = null
     private var layoutJob: Job? = null
     private var weatherCityJob: Job? = null
+    private var companionJob: Job? = null
+    private var subtitleJob: Job? = null
+    private var voiceTurnId = ""
+    private var voiceTurnAt = 0L
+    private var subtitleAt = 0L
 
     init {
         viewModelScope.launch {
@@ -224,12 +246,31 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+        viewModelScope.launch {
+            prefs.miniConnection.collect { mini ->
+                _ui.update { it.copy(miniConnection = mini) }
+                restartMiniPolling(mini)
+            }
+        }
     }
 
     fun saveDraft(host: String, portText: String, token: String) {
         val port = portText.toIntOrNull() ?: HubConnection.DEFAULT_PORT
         viewModelScope.launch {
             prefs.save(HubConnection(host = host, port = port, token = token))
+        }
+    }
+
+    fun saveMiniDraft(host: String, portText: String, token: String) {
+        val port = portText.toIntOrNull() ?: MiniConnection.DEFAULT_PORT
+        viewModelScope.launch {
+            prefs.saveMini(
+                MiniConnection(
+                    host = host.ifBlank { MiniConnection.DEFAULT_HOST },
+                    port = port,
+                    token = token.ifBlank { MiniConnection.DEFAULT_TOKEN },
+                ),
+            )
         }
     }
 
@@ -309,25 +350,86 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setWakeWord(enabled: Boolean) {
-        _ui.update { it.copy(wakeWordEnabled = enabled, voiceListening = if (enabled) it.voiceListening else false) }
+        _ui.update {
+            it.copy(
+                wakeWordEnabled = enabled,
+                voiceListening = if (enabled) it.voiceListening else false,
+                voiceText = if (enabled) it.voiceText else "",
+                voiceSettled = if (enabled) it.voiceSettled else false,
+            )
+        }
         if (!enabled) listeningJob?.cancel()
         viewModelScope.launch {
             prefs.saveWakeWordEnabled(enabled)
         }
     }
 
-    fun onWakeWord(keyword: String = "岸宝") {
+    fun onWakeWord(keyword: String = "岸宝", turnId: String = "") {
         listeningJob?.cancel()
+        rememberTurn(turnId)
         val wasSleeping = _ui.value.hubSleeping
-        _ui.update { it.copy(voiceListening = true, hubSleeping = false) }
+        _ui.update {
+            it.copy(
+                voiceListening = true,
+                voiceText = "",
+                voiceSettled = false,
+                hubSleeping = false,
+            )
+        }
         if (wasSleeping || _ui.value.powerScreen) {
             _screenCommands.tryEmit(ScreenCommand.VoiceWake)
         }
         listeningJob = viewModelScope.launch {
-            delay(VOICE_LISTEN_MS)
+            delay(VOICE_FALLBACK_MS)
+            val current = _ui.value
+            if (current.voiceListening && current.voiceText.isBlank()) {
+                _ui.update { it.copy(voiceListening = false) }
+                if (disconnectedAt != null && _ui.value.powerScreen) scheduleHubSleep()
+            }
+        }
+    }
+
+    fun onVoiceTranscript(text: String, settled: Boolean, turnId: String = "") {
+        listeningJob?.cancel()
+        rememberTurn(turnId)
+        _ui.update {
+            it.copy(
+                voiceListening = true,
+                voiceText = text,
+                voiceSettled = settled,
+            )
+        }
+        if (!settled) return
+        val spoken = text.trim()
+        if (spoken.isNotEmpty() && companionReady()) {
+            _ui.update { it.copy(voiceListening = false) }
+            hearCompanion(spoken)
+            return
+        }
+        val hold = if (spoken.isEmpty()) VOICE_MISS_MS else VOICE_HOLD_MS
+        listeningJob = viewModelScope.launch {
+            delay(hold)
             _ui.update { it.copy(voiceListening = false) }
             if (disconnectedAt != null && _ui.value.powerScreen) scheduleHubSleep()
         }
+    }
+
+    private fun rememberTurn(turnId: String) {
+        val id = turnId.trim()
+        if (id.isEmpty()) return
+        if (id == voiceTurnId) return
+        voiceTurnId = id
+        voiceTurnAt = HelmLatency.now()
+        subtitleAt = 0L
+    }
+
+    private fun ensureTurn(): String {
+        if (voiceTurnId.isBlank()) {
+            voiceTurnId = HelmLatency.newTurn()
+            voiceTurnAt = HelmLatency.now()
+            subtitleAt = 0L
+        }
+        return voiceTurnId
     }
 
     fun onHubReachable() {
@@ -547,6 +649,48 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun testMiniConnection(host: String, portText: String, token: String) {
+        val port = portText.toIntOrNull()
+        val resolvedHost = host.ifBlank { MiniConnection.DEFAULT_HOST }
+        val resolvedToken = token.ifBlank { MiniConnection.DEFAULT_TOKEN }
+        if (resolvedHost.isBlank()) {
+            _ui.update { it.copy(settingsStatus = "请填写 Mini 地址", settingsOk = false) }
+            return
+        }
+        if (port == null || port !in 1..65535) {
+            _ui.update { it.copy(settingsStatus = "Mini 端口无效", settingsOk = false) }
+            return
+        }
+        val connection = MiniConnection(resolvedHost, port, resolvedToken)
+        viewModelScope.launch {
+            _ui.update { it.copy(testing = true, settingsStatus = null) }
+            val result = withContext(Dispatchers.IO) {
+                runCatching { client.miniHealth(connection) }
+            }
+            result.fold(
+                onSuccess = { health: Health ->
+                    prefs.saveMini(connection)
+                    _ui.update {
+                        it.copy(
+                            testing = false,
+                            settingsOk = true,
+                            settingsStatus = "Mini 已连接 ${health.name}（协议 v${health.protocol}）",
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _ui.update {
+                        it.copy(
+                            testing = false,
+                            settingsOk = false,
+                            settingsStatus = error.userMessage().replace("Hub", "Mini"),
+                        )
+                    }
+                },
+            )
+        }
+    }
+
     fun refreshNow() {
         val connection = _ui.value.connection
         if (!connection.isConfigured) return
@@ -593,6 +737,157 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
             delay(400)
             _ui.update { it.copy(media = phoneMedia.snapshot()) }
         }
+    }
+
+    fun companionReady(): Boolean {
+        val state = _ui.value
+        return state.snapshot?.companion?.ready == true
+    }
+
+    fun openCompanion() {
+        if (!companionReady()) return
+        _ui.update { it.copy(companionOpen = true, companionError = null) }
+    }
+
+    fun closeCompanion() {
+        companionJob?.cancel()
+        _ui.update {
+            it.copy(
+                companionOpen = false,
+                companionBusy = false,
+                companionDraft = "",
+                companionError = null,
+            )
+        }
+        holdSubtitle()
+    }
+
+    fun setCompanionDraft(text: String) {
+        _ui.update { it.copy(companionDraft = text, companionError = null) }
+    }
+
+    fun hearCompanion(text: String) {
+        val spoken = text.trim()
+        if (spoken.isEmpty()) return
+        sendCompanion(spoken)
+    }
+
+    fun sendCompanion(text: String? = null) {
+        val spoken = (text ?: _ui.value.companionDraft).trim()
+        if (spoken.isEmpty() || _ui.value.companionBusy) return
+        companionJob?.cancel()
+        companionVoice.stop()
+        val turn = ensureTurn()
+        _ui.update {
+            it.copy(
+                companionOpen = false,
+                companionDraft = "",
+                companionHeard = spoken,
+                companionReply = null,
+                companionBusy = true,
+                companionError = null,
+            )
+        }
+        if (_ui.value.preview) {
+            companionJob = viewModelScope.launch {
+                delay(400)
+                val preview = previewCompanionReply(spoken)
+                _ui.update {
+                    it.copy(
+                        companionBusy = false,
+                        companionReply = preview,
+                    )
+                }
+                noteSubtitle(turn, preview.length)
+                holdSubtitle()
+            }
+            return
+        }
+        val connection = _ui.value.connection
+        if (!connection.isConfigured) {
+            _ui.update { it.copy(companionBusy = false, companionError = "还没连上 Hub") }
+            return
+        }
+        companionJob = viewModelScope.launch {
+            HelmLatency.log(turn, "chat_http_start", "since_wake_ms=${HelmLatency.ms(voiceTurnAt)}")
+            val started = HelmLatency.now()
+            val result = withContext(Dispatchers.IO) {
+                runCatching { client.companionChat(connection, spoken, turn) }
+            }
+            result.fold(
+                onSuccess = { reply ->
+                    HelmLatency.log(
+                        turn,
+                        "chat_http_done",
+                        "ms=${HelmLatency.ms(started)} audio=${if (reply.audioId.isNullOrBlank()) 0 else 1} chars=${reply.text.length}",
+                    )
+                    _ui.update {
+                        it.copy(companionBusy = false, companionReply = reply.text, companionError = null)
+                    }
+                    noteSubtitle(turn, reply.text.length)
+                    holdSubtitle()
+                    playCompanionAudio(connection, reply.audioId, turn)
+                },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    HelmLatency.log(
+                        turn,
+                        "chat_http_error",
+                        "ms=${HelmLatency.ms(started)} err=${error.javaClass.simpleName}",
+                    )
+                    _ui.update {
+                        it.copy(companionBusy = false, companionError = error.userMessage())
+                    }
+                },
+            )
+        }
+    }
+
+    private fun noteSubtitle(turn: String, chars: Int) {
+        subtitleAt = HelmLatency.now()
+        HelmLatency.log(
+            turn,
+            "subtitle_shown",
+            "since_wake_ms=${HelmLatency.ms(voiceTurnAt)} chars=$chars",
+        )
+    }
+
+    private fun playCompanionAudio(connection: HubConnection, audioId: String?, turn: String) {
+        val id = audioId?.trim().orEmpty()
+        if (id.isEmpty()) return
+        viewModelScope.launch {
+            HelmLatency.log(turn, "audio_get_start")
+            val started = HelmLatency.now()
+            val wav = withContext(Dispatchers.IO) {
+                runCatching { client.companionAudio(connection, id) }.getOrNull()
+            }
+            if (wav == null) {
+                HelmLatency.log(turn, "audio_get_error", "ms=${HelmLatency.ms(started)}")
+                return@launch
+            }
+            HelmLatency.log(turn, "audio_get_done", "ms=${HelmLatency.ms(started)} bytes=${wav.size}")
+            companionVoice.play(wav, turn)
+            if (subtitleAt > 0L) {
+                HelmLatency.log(turn, "subtitle_to_audio", "ms=${HelmLatency.ms(subtitleAt)}")
+            }
+            HelmLatency.log(turn, "wake_to_audio", "ms=${HelmLatency.ms(voiceTurnAt)}")
+        }
+    }
+
+    private fun holdSubtitle() {
+        subtitleJob?.cancel()
+        subtitleJob = viewModelScope.launch {
+            delay(SUBTITLE_MS)
+            _ui.update { state ->
+                if (state.companionBusy) state
+                else state.copy(companionHeard = null, companionReply = null, companionError = null)
+            }
+        }
+    }
+
+    override fun onCleared() {
+        companionVoice.release()
+        super.onCleared()
     }
 
     fun setPower(device: HubDevice, on: Boolean) {
@@ -697,6 +992,21 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun restartMiniPolling(connection: MiniConnection) {
+        miniPollJob?.cancel()
+        if (!connection.isConfigured) {
+            _ui.update { it.copy(miniPc = null, miniStale = false) }
+            return
+        }
+        miniPollJob = viewModelScope.launch {
+            pullMini(connection)
+            while (isActive) {
+                delay(POLL_PC_MS)
+                pullMini(connection)
+            }
+        }
+    }
+
     private suspend fun pullSnapshot(connection: HubConnection, showLoading: Boolean) {
         if (showLoading) _ui.update { it.copy(loading = true) }
         val result = withContext(Dispatchers.IO) {
@@ -728,6 +1038,25 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
             onFailure = { error ->
                 handleFailure(error)
                 _ui.update { it.copy(loading = false, stale = it.snapshot != null) }
+            },
+        )
+    }
+
+    private suspend fun pullMini(connection: MiniConnection) {
+        val result = withContext(Dispatchers.IO) {
+            runCatching { client.miniSnapshot(connection) }
+        }
+        result.fold(
+            onSuccess = { pc ->
+                _ui.update { it.copy(miniPc = pc, miniStale = false) }
+            },
+            onFailure = {
+                _ui.update {
+                    it.copy(
+                        miniStale = true,
+                        miniPc = it.miniPc ?: PcStatus(online = false, updatedAt = ""),
+                    )
+                }
             },
         )
     }
@@ -805,7 +1134,10 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         const val WEATHER_RETRY_MS = 90 * 1000L
         const val VIDEO_OFF = "off"
         const val VIDEO_FILE_NAME = "1.mp4"
-        const val VOICE_LISTEN_MS = 6_000L
+        const val VOICE_FALLBACK_MS = 18_000L
+        const val VOICE_HOLD_MS = 2_200L
+        const val VOICE_MISS_MS = 1_200L
+        const val SUBTITLE_MS = 12_000L
         val MEDIA_ACTIONS = setOf("toggle", "next", "previous")
     }
 
@@ -842,6 +1174,18 @@ class DockViewModel(application: Application) : AndroidViewModel(application) {
         val query = WeatherPlaces.normalize(city)
         return WeatherPlaces.normalize(info.query).equals(query, ignoreCase = true) ||
             WeatherPlaces.normalize(info.city).equals(query, ignoreCase = true)
+    }
+}
+
+private fun previewCompanionReply(text: String): String {
+    return when {
+        text.contains("伞") -> "没有预报。出门前自己看一眼天。"
+        text.contains("空调") -> "我还不能动手。请点旁边的开关。"
+        text.contains("灯") && (text.contains("开") || text.contains("关")) ->
+            "我还不能动手。灯请点旁边的开关。"
+        text.contains("舒服") -> "桌上这点读数，我看见了。"
+        text.contains("干什么") || text.contains("在干") -> "值班。你若开口，我就应一声。"
+        else -> "嗯。我在。"
     }
 }
 

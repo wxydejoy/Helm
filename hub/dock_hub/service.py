@@ -4,6 +4,7 @@ import threading
 from typing import Any
 
 from dock_hub import PROTOCOL
+from dock_hub.companion import Companion, facts_from_snapshot
 from dock_hub.config import DeviceConfig, HubConfig, PcConfig
 from dock_hub.errors import HubError
 from dock_hub.launch import launch, launch_exists, launch_running, running_image_names
@@ -44,6 +45,7 @@ class DockHub:
             gpu=pc_cfg.gpu,
         )
         self.pc.start()
+        self.companion = Companion(config.companion)
 
     def login(self, *, force: bool = False) -> None:
         try:
@@ -94,6 +96,7 @@ class DockHub:
             gpu=pc_cfg.gpu,
         )
         self.pc.start()
+        self.companion.configure(config.companion)
         threading.Thread(target=self.login, name="mijia-reload", daemon=True).start()
 
     def _print_bind_warnings(self) -> None:
@@ -151,6 +154,13 @@ class DockHub:
             elif cfg.id in by_id:
                 devices.append(by_id[cfg.id])
         return self._snapshot_body("ok", None, temperature=temperature, devices=devices)
+
+    def companion_chat(self, body: dict[str, Any] | None) -> dict[str, Any]:
+        snap = self.snapshot()
+        return self.companion.chat(body or {}, facts_from_snapshot(snap))
+
+    def companion_audio(self, audio_id: str) -> bytes:
+        return self.companion.audio(audio_id)
 
     def command(self, device_id: str, body: dict[str, Any] | None) -> dict[str, Any]:
         if not isinstance(body, dict) or not body:
@@ -293,6 +303,7 @@ class DockHub:
             },
             "temperature": temperature,
             "pc": self.pc.snapshot(),
+            "companion": self.companion.snapshot(),
             "devices": devices,
         }
 

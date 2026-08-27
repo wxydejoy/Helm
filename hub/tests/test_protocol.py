@@ -96,6 +96,8 @@ class ProtocolTest(unittest.TestCase):
         self.assertFalse(body["devices"][1]["online"])
         self.assertIn("pc", body)
         self.assertIsNone(body["pc"])
+        self.assertIn("companion", body)
+        self.assertIsNone(body["companion"])
 
     def test_action_run(self) -> None:
         with patch("dock_hub.service.launch") as mocked:
@@ -130,6 +132,14 @@ class ProtocolTest(unittest.TestCase):
         status, body = self._request("POST", "/v1/devices/steam/command", {"run": False})
         self.assertEqual(status, 400)
         self.assertEqual(body["error"]["code"], "unsupported")
+
+    def test_companion_disabled_is_404(self) -> None:
+        status, body = self._request("POST", "/v1/companion/chat", {"text": "晚上好。"})
+        self.assertEqual(status, 404)
+        self.assertEqual(body["error"]["code"], "not_found")
+        status, body = self._request("GET", "/v1/companion/audio/abc")
+        self.assertEqual(status, 404)
+        self.assertEqual(body["error"]["code"], "not_found")
 
 
 class ConfigTest(unittest.TestCase):

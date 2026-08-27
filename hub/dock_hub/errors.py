@@ -8,6 +8,7 @@ STATUS_BY_CODE = {
     "login_required": 503,
     "mijia_error": 502,
     "action_error": 502,
+    "companion_unavailable": 502,
 }
 
 

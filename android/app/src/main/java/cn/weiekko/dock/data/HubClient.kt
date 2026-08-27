@@ -32,6 +32,29 @@ class HubClient(
         return health
     }
 
+    fun miniHealth(connection: MiniConnection): Health {
+        val request = Request.Builder()
+            .url("${connection.baseUrl()}/health")
+            .get()
+            .build()
+        val body = execute(request, readTimeoutMs = SNAPSHOT_TIMEOUT_MS, expectAuthError = false)
+        val health = decode<Health>(body)
+        if (health.service != "helm-mini") {
+            throw HubException("bad_request", "这不是 Helm Mini（service=${health.service}）")
+        }
+        if (health.protocol < 1) {
+            throw HubException("bad_request", "Mini 协议版本过低：${health.protocol}")
+        }
+        return health
+    }
+
+    fun miniSnapshot(connection: MiniConnection): PcStatus {
+        val request = miniRequest(connection, "/v1/snapshot").get().build()
+        val body = execute(request, readTimeoutMs = SNAPSHOT_TIMEOUT_MS)
+        val parsed = decode<MiniSnapshot>(body)
+        return parsed.pc ?: PcStatus(online = false, updatedAt = "")
+    }
+
     fun snapshot(connection: HubConnection): Snapshot {
         val request = authorized(connection, "/v1/snapshot").get().build()
         val body = execute(request, readTimeoutMs = SNAPSHOT_TIMEOUT_MS)
@@ -71,11 +94,53 @@ class HubClient(
         return decode(body)
     }
 
+    fun companionChat(
+        connection: HubConnection,
+        text: String,
+        turnId: String = "",
+    ): CompanionChatResponse {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) {
+            throw HubException("bad_request", "text 不能为空")
+        }
+        val payload = buildJsonObject {
+            put("text", JsonPrimitive(trimmed))
+            if (turnId.isNotBlank()) put("turn_id", JsonPrimitive(turnId.trim()))
+        }
+        val request = authorized(connection, "/v1/companion/chat")
+            .post(json.encodeToString(JsonObject.serializer(), payload).toRequestBody(JSON))
+            .build()
+        val body = execute(request, readTimeoutMs = COMPANION_TIMEOUT_MS)
+        return decode(body)
+    }
+
+    fun companionAudio(connection: HubConnection, audioId: String): ByteArray {
+        val id = audioId.trim()
+        if (!AUDIO_ID.matches(id)) {
+            throw HubException("bad_request", "audio_id 无效")
+        }
+        val request = authorized(connection, "/v1/companion/audio/$id")
+            .header("Accept", "audio/wav")
+            .get()
+            .build()
+        return executeBytes(request, readTimeoutMs = COMPANION_TIMEOUT_MS)
+    }
+
     private fun authorized(connection: HubConnection, path: String): Request.Builder {
         return Request.Builder()
             .url("${connection.baseUrl()}$path")
             .header("Authorization", "Bearer ${connection.token}")
             .header("Accept", "application/json")
+    }
+
+    private fun miniRequest(connection: MiniConnection, path: String): Request.Builder {
+        val builder = Request.Builder()
+            .url("${connection.baseUrl()}$path")
+            .header("Accept", "application/json")
+        if (connection.token.isNotBlank()) {
+            builder.header("Authorization", "Bearer ${connection.token}")
+        }
+        return builder
     }
 
     private fun execute(
@@ -95,6 +160,28 @@ class HubClient(
         response.use { resp ->
             val raw = resp.body?.string().orEmpty()
             if (resp.isSuccessful) return raw
+            throw parseError(raw, resp.code, expectAuthError)
+        }
+    }
+
+    private fun executeBytes(
+        request: Request,
+        readTimeoutMs: Long,
+        expectAuthError: Boolean = true,
+    ): ByteArray {
+        val callClient = http.newBuilder()
+            .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
+            .callTimeout(readTimeoutMs + 1_000, TimeUnit.MILLISECONDS)
+            .build()
+        val response = try {
+            callClient.newCall(request).execute()
+        } catch (e: IOException) {
+            throw HubNetworkException("连不上 Hub：${e.message ?: "网络错误"}", e)
+        }
+        response.use { resp ->
+            val bytes = resp.body?.bytes() ?: ByteArray(0)
+            if (resp.isSuccessful) return bytes
+            val raw = bytes.toString(Charsets.UTF_8)
             throw parseError(raw, resp.code, expectAuthError)
         }
     }
@@ -128,6 +215,8 @@ class HubClient(
     companion object {
         const val SNAPSHOT_TIMEOUT_MS = 5_000L
         const val COMMAND_TIMEOUT_MS = 10_000L
+        const val COMPANION_TIMEOUT_MS = 30_000L
+        private val AUDIO_ID = Regex("^[A-Za-z0-9._-]+$")
         private val JSON = "application/json; charset=utf-8".toMediaType()
 
         @OptIn(ExperimentalSerializationApi::class)
@@ -152,6 +241,7 @@ class HubClient(
             "login_required" -> "请在电脑上扫码登录米家"
             "action_error" -> "无法启动程序"
             "media_error" -> "无法控制播放"
+            "companion_unavailable" -> "伴侣暂时无法回答"
             "unsupported" -> "该设备不支持此操作"
             "bad_request" -> "请求无效"
             else -> "Hub 错误 HTTP $httpStatus"

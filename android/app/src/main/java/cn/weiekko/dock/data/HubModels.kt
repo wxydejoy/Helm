@@ -17,6 +17,7 @@ data class Snapshot(
     val temperature: Temperature? = null,
     val pc: PcStatus? = null,
     val media: MediaInfo? = null,
+    val companion: CompanionStatus? = null,
     val devices: List<HubDevice> = emptyList(),
 )
 
@@ -88,6 +89,32 @@ data class MediaInfo(
         )
     }
 }
+
+@Serializable
+data class MiniSnapshot(
+    val protocol: Int = 1,
+    val service: String? = null,
+    val pc: PcStatus? = null,
+)
+
+@Serializable
+data class CompanionStatus(
+    val ready: Boolean,
+    val voice: Boolean = false,
+    val speaking: Boolean = false,
+)
+
+@Serializable
+data class CompanionChatRequest(
+    val text: String,
+    val turnId: String? = null,
+)
+
+@Serializable
+data class CompanionChatResponse(
+    val text: String,
+    val audioId: String? = null,
+)
 
 @Serializable
 data class HubDevice(

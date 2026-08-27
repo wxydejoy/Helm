@@ -1,6 +1,6 @@
 # Dock Hub（Windows）
 
-电脑上的 Python 服务：对内调 [mijia-api](https://github.com/Do1e/mijia-api)、采集本机性能、按白名单启动本机程序；对外只提供 [Dock LAN Protocol v1](../docs/lan-protocol.md) 的 3 个 HTTP 接口。
+电脑上的 Python 服务：对内调 [mijia-api](https://github.com/Do1e/mijia-api)、采集本机性能、按白名单启动本机程序，并作为本地大脑 / TTS 的客户端；对外只提供 [Dock LAN Protocol v1](../docs/lan-protocol.md) 的 HTTP 接口。
 
 安卓不直连米家，也看不到 `did` / 可执行文件路径。依赖 GPL-3.0 的 mijia-api：自用没问题；若分发 Hub，需要同样开源。
 

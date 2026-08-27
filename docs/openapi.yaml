@@ -9,6 +9,11 @@ info:
     Optional snapshot.pc carries host CPU / memory / GPU / FPS telemetry.
     Optional snapshot.media is the system now-playing session; control it with
     POST /v1/devices/media/command (reserved id, not a devices[] item).
+    Optional snapshot.companion is the on-desk character; talk with
+    POST /v1/companion/chat.
+    Mac Mini stats are a separate process on port 17891 (service helm-mini):
+    GET /health and GET /v1/snapshot with the same pc object.
+    Default host 10.83.22.121, Bearer token helm-mini-weiekko.
 servers:
   - url: http://{host}:17890
     variables:
@@ -39,6 +44,56 @@ paths:
               schema:
                 $ref: "#/components/schemas/Snapshot"
         "401":
+          $ref: "#/components/responses/Error"
+  /v1/companion/chat:
+    post:
+      summary: One companion turn (local LLM)
+      operationId: postCompanionChat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanionChatRequest"
+            example:
+              text: 晚上好。
+      responses:
+        "200":
+          description: Spoken reply text
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanionChatResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "502":
+          $ref: "#/components/responses/Error"
+  /v1/companion/audio/{id}:
+    get:
+      summary: Fetch one companion wav (home LAN only)
+      operationId: getCompanionAudio
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9._-]+$"
+      responses:
+        "200":
+          description: audio/wav
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
           $ref: "#/components/responses/Error"
   /v1/devices/{id}/command:
     post:
@@ -149,6 +204,13 @@ components:
           description: >
             System media session. null when disabled in hub.yaml.
             Control via POST /v1/devices/media/command.
+        companion:
+          allOf:
+            - $ref: "#/components/schemas/CompanionStatus"
+          nullable: true
+          description: >
+            Desk companion. null when disabled in hub.yaml.
+            Talk via POST /v1/companion/chat.
         devices:
           type: array
           items:
@@ -266,6 +328,36 @@ components:
         updated_at:
           type: string
           format: date-time
+    CompanionStatus:
+      type: object
+      required: [ready, voice, speaking]
+      properties:
+        ready:
+          type: boolean
+        voice:
+          type: boolean
+        speaking:
+          type: boolean
+    CompanionChatRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+        weather:
+          type: object
+          additionalProperties: true
+          description: Optional; ignored in phase 1
+    CompanionChatResponse:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+        audio_id:
+          type: string
+          nullable: true
     Device:
       type: object
       required: [id, name, type, online]

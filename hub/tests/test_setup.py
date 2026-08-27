@@ -44,6 +44,28 @@ class SetupWizardTest(unittest.TestCase):
             self.assertEqual(dumped["devices"][0]["on_prop"], "on-2")
             self.assertTrue(path.is_file())
 
+    def test_wizard_save_keeps_companion(self) -> None:
+        from dock_hub.setup_ui import _payload_to_raw
+
+        cfg = parse_config(
+            {
+                "name": "study",
+                "token": "secret-token-value",
+                "companion": {
+                    "enabled": True,
+                    "llm": {"base_url": "http://127.0.0.1:11434", "model": "qwen3.5:4b"},
+                    "tts": {"base_url": "http://127.0.0.1:18100"},
+                },
+                "devices": [],
+            }
+        )
+        raw = _payload_to_raw(
+            {"name": "study", "token": "secret-token-value", "port": 17890, "devices": []},
+            cfg,
+        )
+        self.assertEqual(raw["companion"]["llm"]["model"], "qwen3.5:4b")
+        self.assertEqual(raw["companion"]["tts"]["base_url"], "http://127.0.0.1:18100")
+
     def test_setup_api_localhost_only(self) -> None:
         cfg = parse_config(
             {

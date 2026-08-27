@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import cn.weiekko.dock.data.DockFont
 import cn.weiekko.dock.data.DockModule
 import cn.weiekko.dock.data.HubConnection
+import cn.weiekko.dock.data.MiniConnection
 import cn.weiekko.dock.data.HubPreferences
 import cn.weiekko.dock.data.TileLook
 import cn.weiekko.dock.data.TileStyle
@@ -81,6 +82,8 @@ fun SettingsScreen(
     canGoBack: Boolean,
     onTest: (host: String, port: String, token: String) -> Unit,
     onSave: (host: String, port: String, token: String) -> Unit,
+    onTestMini: (host: String, port: String, token: String) -> Unit = { _, _, _ -> },
+    onSaveMini: (host: String, port: String, token: String) -> Unit = { _, _, _ -> },
     onSetVideo: (Uri?) -> Unit,
     onSetTileLook: (TileLook) -> Unit,
     onSetTypeLook: (TypeLook) -> Unit,
@@ -101,6 +104,9 @@ fun SettingsScreen(
         mutableStateOf(state.connection.port.toString())
     }
     var token by rememberSaveable { mutableStateOf(state.connection.token) }
+    var miniHost by rememberSaveable { mutableStateOf(state.miniConnection.host.ifBlank { MiniConnection.DEFAULT_HOST }) }
+    var miniPort by rememberSaveable { mutableStateOf(state.miniConnection.port.toString()) }
+    var miniToken by rememberSaveable { mutableStateOf(state.miniConnection.token.ifBlank { MiniConnection.DEFAULT_TOKEN }) }
     var weatherCity by rememberSaveable { mutableStateOf(state.weatherCity) }
     val context = LocalContext.current
     var adminGranted by remember { mutableStateOf(DockPower.isAdmin(context)) }
@@ -145,11 +151,18 @@ fun SettingsScreen(
         cursorColor = colors.primary,
     )
 
-    LaunchedEffect(state.connection, state.weatherCity) {
+    LaunchedEffect(state.connection, state.miniConnection, state.weatherCity) {
         if (host.isEmpty()) host = state.connection.host
         if (token.isEmpty()) token = state.connection.token
         if (port == HubConnection.DEFAULT_PORT.toString() && state.connection.port != HubConnection.DEFAULT_PORT) {
             port = state.connection.port.toString()
+        }
+        if (miniHost.isEmpty()) miniHost = state.miniConnection.host
+        if (miniToken.isEmpty()) miniToken = state.miniConnection.token
+        if (miniPort == MiniConnection.DEFAULT_PORT.toString() &&
+            state.miniConnection.port != MiniConnection.DEFAULT_PORT
+        ) {
+            miniPort = state.miniConnection.port.toString()
         }
         if (weatherCity.isEmpty() && state.weatherCity.isNotEmpty()) {
             weatherCity = state.weatherCity
@@ -172,6 +185,7 @@ fun SettingsScreen(
             if (canGoBack) {
                 IconButton(onClick = {
                     onSave(host, port, token)
+                    onSaveMini(miniHost, miniPort, miniToken)
                     onBack()
                 }) {
                     Icon(
@@ -189,7 +203,7 @@ fun SettingsScreen(
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            "电脑上的 Python 脚本启动后会打印地址。现在可以先返回主屏看界面。",
+            "Windows Hub 与 Mac Mini 启动后会打印局域网地址。Mini 默认端口 17891。",
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(horizontal = 4.dp),
         )
@@ -200,6 +214,8 @@ fun SettingsScreen(
             shape = MaterialTheme.shapes.large,
         ) {
             Column(Modifier.padding(20.dp)) {
+                Text("Windows Hub", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = host,
                     onValueChange = { host = it },
@@ -260,7 +276,84 @@ fun SettingsScreen(
                 Spacer(Modifier.width(10.dp))
                 Text("正在连接…")
             } else {
-                Text("测试连接")
+                Text("测试 Hub")
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = colors.surface,
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Text("Mac Mini", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "本机 CPU / 内存 / GPU，显示在主屏 CPU 块第二行。默认地址与 Token 已填好。",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = miniHost,
+                    onValueChange = { miniHost = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("地址") },
+                    placeholder = { Text(MiniConnection.DEFAULT_HOST) },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                    colors = fieldColors,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                )
+                Spacer(Modifier.height(14.dp))
+                OutlinedTextField(
+                    value = miniPort,
+                    onValueChange = { miniPort = it.filter { ch -> ch.isDigit() }.take(5) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("端口") },
+                    placeholder = { Text("17891") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                    colors = fieldColors,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                Spacer(Modifier.height(14.dp))
+                OutlinedTextField(
+                    value = miniToken,
+                    onValueChange = { miniToken = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Token") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                    colors = fieldColors,
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Button(
+            onClick = { onTestMini(miniHost, miniPort, miniToken) },
+            enabled = !state.testing,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            shape = MaterialTheme.shapes.medium,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = colors.primary,
+                contentColor = colors.onPrimary,
+                disabledContainerColor = colors.primary.copy(alpha = 0.4f),
+                disabledContentColor = colors.onPrimary,
+            ),
+        ) {
+            if (state.testing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.onPrimary,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text("正在连接…")
+            } else {
+                Text("测试 Mini")
             }
         }
         state.settingsStatus?.let { status ->

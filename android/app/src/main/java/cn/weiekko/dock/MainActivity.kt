@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val viewModel: DockViewModel by viewModels()
     private var powerReceiverRegistered = false
+    private var transcriptReceiverRegistered = false
     private val requestMic = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -69,6 +70,16 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    private val transcriptReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != WakeWordService.ACTION_TRANSCRIPT) return
+            viewModel.onVoiceTranscript(
+                intent.getStringExtra(WakeWordService.EXTRA_TEXT).orEmpty(),
+                intent.getBooleanExtra(WakeWordService.EXTRA_SETTLED, false),
+                intent.getStringExtra(WakeWordService.EXTRA_TURN).orEmpty(),
+            )
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,6 +96,15 @@ class MainActivity : ComponentActivity() {
         hideSystemBars()
         applyHubExtras(intent)
         handleWakeIntent(intent)
+        if (!transcriptReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                transcriptReceiver,
+                IntentFilter(WakeWordService.ACTION_TRANSCRIPT),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+            transcriptReceiverRegistered = true
+        }
         lifecycleScope.launch {
             viewModel.screenCommands.collect { command ->
                 when (command) {
@@ -172,6 +192,8 @@ class MainActivity : ComponentActivity() {
                                     canGoBack = true,
                                     onTest = viewModel::testConnection,
                                     onSave = viewModel::saveDraft,
+                                    onTestMini = viewModel::testMiniConnection,
+                                    onSaveMini = viewModel::saveMiniDraft,
                                     onSetVideo = viewModel::setBackgroundVideo,
                                     onSetTileLook = viewModel::setTileLook,
                                     onSetTypeLook = viewModel::setTypeLook,
@@ -200,6 +222,14 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         applyHubExtras(intent)
         handleWakeIntent(intent)
+    }
+
+    override fun onDestroy() {
+        if (transcriptReceiverRegistered) {
+            unregisterReceiver(transcriptReceiver)
+            transcriptReceiverRegistered = false
+        }
+        super.onDestroy()
     }
 
     override fun onStart() {
@@ -263,7 +293,10 @@ class MainActivity : ComponentActivity() {
 
     private fun handleWakeIntent(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_WAKE_WORD, false) == true) {
-            viewModel.onWakeWord(intent.getStringExtra(EXTRA_KEYWORD).orEmpty())
+            viewModel.onWakeWord(
+                intent.getStringExtra(EXTRA_KEYWORD).orEmpty(),
+                intent.getStringExtra(EXTRA_TURN).orEmpty(),
+            )
             exitHubSleep()
             DockPower.wake(this)
             return
@@ -320,6 +353,7 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_HUB_WAKE = "hub_wake"
         const val EXTRA_WAKE_WORD = "wake_word"
         const val EXTRA_KEYWORD = "keyword"
+        const val EXTRA_TURN = "turn_id"
 
         fun wakeIntent(context: Context): Intent {
             return Intent(context, MainActivity::class.java).apply {
@@ -332,7 +366,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        fun wakeWordIntent(context: Context, keyword: String): Intent {
+        fun wakeWordIntent(context: Context, keyword: String, turnId: String = ""): Intent {
             return Intent(context, MainActivity::class.java).apply {
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -341,6 +375,7 @@ class MainActivity : ComponentActivity() {
                 )
                 putExtra(EXTRA_WAKE_WORD, true)
                 putExtra(EXTRA_KEYWORD, keyword)
+                putExtra(EXTRA_TURN, turnId)
             }
         }
     }

@@ -1,4 +1,6 @@
 .venv/
+mini/.venv/
+mini/helm-mini.log
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -13,5 +15,6 @@ android/app/build/
 android/local.properties
 android/app/libs/*.aar
 android/app/src/main/assets/kws/*.onnx
+android/app/src/main/assets/asr/*.onnx
 .idea/
 .DS_Store

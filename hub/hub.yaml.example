@@ -14,6 +14,18 @@ pc:
   cpu_temp: true
   gpu: true
 
+# 桌面伴侣（本地 LLM + Mini TTS）。整段删掉或 enabled: false → snapshot.companion = null
+# Hub 在这台 Mini 上时用 127.0.0.1；若 Hub 在 Windows，改成 Mini 的局域网 IP
+# companion:
+#   enabled: true
+#   llm:
+#     base_url: "http://127.0.0.1:11434"
+#     model: qwen3.5:4b
+#     timeout_sec: 30
+#   tts:
+#     base_url: "http://127.0.0.1:18100"
+#     timeout_sec: 20
+
 # 主屏那一个温度源（只允许一个；不要就整段删掉）
 temperature:
   id: desk

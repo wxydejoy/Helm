@@ -184,12 +184,15 @@ def _payload_to_raw(payload: dict[str, Any], current: Any) -> dict[str, Any]:
         "pc": payload.get("pc") if payload.get("pc") is not None else hub_config_to_raw(current).get("pc"),
         "devices": payload.get("devices") or [],
     }
+    dumped = hub_config_to_raw(current)
     if "temperature" in payload:
         temp = payload.get("temperature")
         if temp:
             raw["temperature"] = temp
     elif current.temperature:
-        raw["temperature"] = hub_config_to_raw(current)["temperature"]
+        raw["temperature"] = dumped["temperature"]
+    if dumped.get("companion") is not None:
+        raw["companion"] = dumped["companion"]
     return raw
 
 

@@ -66,6 +66,7 @@ object DemoSnapshot {
             fps = 144.0,
         ),
         media = media,
+        companion = CompanionStatus(ready = true),
         devices = listOf(
             HubDevice(
                 id = "lamp",
@@ -83,5 +84,13 @@ object DemoSnapshot {
                 on = false,
             ),
         ),
+    )
+
+    val mini = PcStatus(
+        online = true,
+        updatedAt = "2026-08-15T16:00:00Z",
+        cpu = PcCpu(percent = 18.0),
+        memory = PcMemory(percent = 41.0, usedGb = 6.6, totalGb = 16.0),
+        gpu = PcGpu(name = "M4", percent = 8.0),
     )
 }

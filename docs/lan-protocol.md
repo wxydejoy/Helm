@@ -3,7 +3,7 @@
 Helm 安卓客户端与电脑上 Python Hub 的局域网通信契约。
 
 - **安卓**：只实现本文档的客户端。不直连米家，不理解 `did` / `siid` / `piid`，也不知道电脑上要跑哪条命令；电脑性能数字只读 snapshot 里的 `pc`。
-- **Hub**（另一名 agent 编写）：在 Mac / Windows 上跑一个简单 Python 脚本，对内调 [mijia-api](https://github.com/Do1e/mijia-api)、采集本机性能、按白名单启动本机程序，对外只暴露本文档的 3 个 HTTP 接口。
+- **Hub**（另一名 agent 编写）：在 Mac / Windows 上跑一个简单 Python 脚本，对内调 [mijia-api](https://github.com/Do1e/mijia-api)、采集本机性能、按白名单启动本机程序，可选转本地 LLM；对外只暴露本文档的 HTTP 接口。
 
 本文档是唯一协议来源。机器可读副本见 [openapi.yaml](./openapi.yaml)。
 
@@ -18,6 +18,7 @@ Helm 安卓客户端与电脑上 Python Hub 的局域网通信契约。
 3. 主屏 logo：点一下，Hub 在电脑上启动已配置的程序或脚本（Steam、浏览器、一段 `.ps1` / `.bat` 等）
 4. 电脑监控：CPU / 内存占用、温度、当前帧率等（只读，挂在 snapshot 的 `pc` 上）
 5. 音乐播放控制：上一首 / 播放暂停 / 下一首（挂在 snapshot 的 `media` 上；命令走保留 id `media`）
+6. 可选桌面伴侣：短对话（挂在 snapshot 的 `companion` 上；说话走 `POST /v1/companion/chat`）。实现说明见 [companion.md](./companion.md)
 
 不做：电脑唤醒/休眠、摄像头、公网访问、HTTPS、设备实时推送、米家完整设备列表、安卓下发任意命令行、进程列表、磁盘分区管理、远程桌面。
 
@@ -68,6 +69,8 @@ v1 不轮换 token。局域网 + 长 token 足够。
 |---|---|
 | `GET /health`、`GET /v1/snapshot` | 5 秒 |
 | `POST /v1/devices/{id}/command` | 10 秒 |
+| `POST /v1/companion/chat` | 30 秒 |
+| `GET /v1/companion/audio/{id}` | 30 秒 |
 
 Hub 应在超时前返回。米家过慢则 `502` + `mijia_error`。
 
@@ -98,15 +101,17 @@ Hub 可选注册 mDNS，方便以后自动发现：
 
 ## 4. 接口一览
 
-一共 3 个：
+一共 5 个（companion 可关）：
 
 | 方法 | 路径 | 鉴权 | 用途 |
 |---|---|---|---|
 | `GET` | `/health` | 否 | 探活、确认是 Hub |
 | `GET` | `/v1/snapshot` | 是 | 主屏全部状态（一次拿完） |
 | `POST` | `/v1/devices/{id}/command` | 是 | 控制一个设备，或触发一个 logo 动作 |
+| `POST` | `/v1/companion/chat` | 是 | 桌面伴侣一轮对话（配置关闭则 404） |
+| `GET` | `/v1/companion/audio/{id}` | 是 | 伴侣 wav（`audio_id` 为空或关闭则不要打） |
 
-没有单独的「读温度」「读电脑性能」「跑脚本」「读正在播放」接口。米家温度、logo、电脑监控、正在播放都在 snapshot 里；点击 logo 和播放键走同一个 command。
+没有单独的「读温度」「读电脑性能」「跑脚本」「读正在播放」接口。米家温度、logo、电脑监控、正在播放、伴侣是否就绪都在 snapshot 里；点击 logo 和播放键走同一个 command；说话走 companion/chat，声音走 companion/audio。
 
 ---
 
@@ -218,6 +223,23 @@ Hub 可选注册 mDNS，方便以后自动发现：
 
 **200** 返回与 snapshot.`media` 同形的对象（不是 Device）。安卓用它替换本地 `media`。
 
+### 5.5 桌面伴侣 `companion`
+
+本地大模型短对话。挂在 snapshot 顶层，**不是** `devices[]` 里的一项。说话走 `POST /v1/companion/chat`，不要复用 devices/command。
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `ready` | 是 | 大脑（LLM）现在能否回答。Ollama 守护进程活着则为 `true` |
+| `voice` | 是 | Mini TTS `/health` 探活且 `ready`。没配 `tts.base_url` 或连不上则为 `false` |
+| `speaking` | 是 | Hub 正在向 TTS 要 wav 时为 `true` |
+
+规则：
+
+- 配置关闭或整段删掉 → snapshot 的 `companion` 为 `null`（键保留，值为 `null`）
+- 不依赖米家。`hub.mijia` 为 `login_required` 时，`companion` 仍应照常返回
+- 禁止把模型路径、prompt、API key、参考音频路径放进 snapshot
+- 安卓只发用户这句话；室温 / 灯 / pc 由 Hub 自行塞进模型，不要让手机拼人设
+
 ---
 
 ## 6. 接口定义
@@ -299,6 +321,11 @@ Hub 可选注册 mDNS，方便以后自动发现：
     "artist": "Demo",
     "app": "Music",
     "updated_at": "2026-08-15T15:30:01Z"
+  },
+  "companion": {
+    "ready": true,
+    "voice": false,
+    "speaking": false
   },
   "devices": [
     {
@@ -477,6 +504,62 @@ Content-Type: application/json
 
 同一 id 的命令 Hub 应串行处理，避免米家并发写打架，也避免同一个 logo 被连点启动两份程序。
 
+### 6.4 `POST /v1/companion/chat`
+
+一轮用户说话。需要 token。配置未开启 companion → `404` `not_found`。
+
+```http
+POST /v1/companion/chat
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"text": "晚上好。"}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `text` | 是 | 用户这句话，UTF-8，去掉首尾空白后不能为空 |
+| `weather` | 否 | 一期可忽略。二期给 Hub 室外天气，形状不在此冻结 |
+
+**200**
+
+```json
+{
+  "text": "晚上好，漂泊者。岸边很安静。",
+  "audio_id": "a1b2c3d4e5f6"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `text` | 给字幕和 TTS 的正文。1–3 句。不要把 thinking 链放进来 |
+| `audio_id` | 配了 TTS 且合成成功则为 id（`A-Za-z0-9._-`）；否则 `null`。非空时可立刻 `GET /v1/companion/audio/{id}` |
+
+**错误**
+
+- 空 `text` / 缺字段 → `400` `bad_request`
+- companion 关闭 → `404` `not_found`
+- LLM 不可达或超时 → `502` `companion_unavailable`
+
+Hub 应在超时前返回。4B 关思考仍慢则 `502`，不要让安卓一直转。TTS 失败**不要**把整轮打成 502：仍 `200` 并带 `text`，`audio_id` 为 `null`。
+
+一期不根据回复去开灯或开程序。
+
+### 6.5 `GET /v1/companion/audio/{id}`
+
+需要 token。`id` 只允许 `A-Za-z0-9._-`。Hub 从 Mini TTS（`:18100` `POST /v1/speak`）拿到的 wav 缓存在本机；**安卓不要直连 :18100**。
+
+合成发生在 `POST /v1/companion/chat` 里；本接口只返回已缓存的 wav，不再向 TTS 要一遍。
+
+没有这段、或 `id` 不认识 → `404`。没配 TTS 时 chat 的 `audio_id` 为 `null`，安卓不要打这个接口。
+
+```http
+GET /v1/companion/audio/a1b2c3d4e5f6
+Authorization: Bearer <token>
+```
+
+**200** `Content-Type: audio/wav`
+
 ---
 
 ## 7. 错误格式
@@ -497,12 +580,13 @@ Content-Type: application/json
 | `unauthorized` | 401 | token 错或缺失 |
 | `bad_request` | 400 | JSON 无效、缺字段、亮度越界 |
 | `unsupported` | 400 | 该设备类型不支持该字段 |
-| `not_found` | 404 | 设备 id 不在白名单 |
+| `not_found` | 404 | 设备 id 不在白名单；或 companion 未开启 |
 | `offline` | 409 | 设备离线，无法控制 |
 | `login_required` | 503 | 米家需要扫码 |
 | `mijia_error` | 502 | 米家调用失败 |
 | `action_error` | 502 | 本机程序/脚本拉起失败 |
 | `media_error` | 502 | 系统媒体键发送失败 |
+| `companion_unavailable` | 502 | 本地大脑不可达或超时 |
 
 `message` 用中文，可直接显示在安卓上。
 
@@ -554,7 +638,7 @@ sequenceDiagram
 
 1. 启动时用 mijia-api 扫码登录（token 缓存在本机 `auth.json`，自动刷新）。
 2. 读本地配置，把「友好 id」映射到米家设备名，以及映射到本机可执行文件 / 脚本；按配置采集本机 `pc` 与 `media`。
-3. 按本文档提供 3 个 HTTP 接口。建议 FastAPI 或 Flask，标准库 `http.server` 也可以。
+3. 按本文档提供 HTTP 接口。建议 FastAPI 或 Flask，标准库 `http.server` 也可以。
 4. 监听 `0.0.0.0:17890`，启动时打印局域网 URL。
 5. 收到 `action` 的 `run` 时，只用配置里的 `program` / `args` 拉起进程，**永远不要**把 HTTP body 拼进命令行。
 6. 后台线程采样 CPU / 内存 /（可选）GPU / FPS，snapshot 只读最新缓存。
@@ -581,6 +665,17 @@ pc:
 # 系统媒体播放控制。整段删掉则默认开启；enabled: false → snapshot.media = null
 media:
   enabled: true
+
+# 桌面伴侣。整段删掉或 enabled: false → snapshot.companion = null
+# companion:
+#   enabled: true
+#   llm:
+#     base_url: "http://10.83.22.121:11434"
+#     model: qwen3.5:4b
+#     timeout_sec: 30
+#   tts:
+#     base_url: "http://10.83.22.121:18100"
+#     timeout_sec: 20
 
 # 主屏那一个温度源（只允许一个）
 temperature:
@@ -693,7 +788,7 @@ devices:
 - 不要新增安卓还没实现的接口而不改本文档
 - 不要返回配置外的设备
 - 不要接受安卓传来的可执行路径、参数或脚本正文
-- 不要为电脑监控或播放控制再开第四个 HTTP 接口（一律走 snapshot / 现有 command）
+- 不要为电脑监控或播放控制再开未写进本文档的 HTTP 接口（一律走 snapshot / 现有 command）。伴侣对话是 `/v1/companion/chat`，声音是 `/v1/companion/audio/{id}`
 - 不要在 `pc` 里返回进程列表或可执行路径
 - 不要把 `media` 当成 `devices[]` 里的一项；也不要用 `media` 做设备 id
 - 不要提供图标文件接口；`icon` 只发短名，由安卓用 Remix Icon 渲染
@@ -713,6 +808,7 @@ devices:
 - `online == false`：控件禁用，名称旁标离线
 - 请求失败：温度 / `pc` / `media` 显示上次值，并标「未更新」
 - `hub.mijia == login_required`：顶部提示扫码；米家控件不画或禁用；`action` logo、`pc` 与 `media` **仍显示**
+- `companion != null` 且 `ready`：主屏可点人物说话；`null` 或 `ready == false` 不画入口或灰显
 - 401：回到设置页
 - 命令进行中：该控件 loading，忽略重复点击
 - `action` 成功：logo 短暂高亮即可。首版**不**查询电脑上程序是否还在运行
@@ -751,6 +847,17 @@ curl -s http://HOST:17890/v1/devices/media/command \
   -H "Content-Type: application/json" \
   -d '{"media":"toggle"}'
 
+# 桌面伴侣（需 hub.yaml companion.enabled；有 TTS 时带 audio_id）
+curl -s http://HOST:17890/v1/companion/chat \
+  -H "Authorization: Bearer TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"晚上好。"}'
+
+# 有 audio_id 时拉 wav（安卓只连 Hub，不要直连 Mini :18100）
+curl -s http://HOST:17890/v1/companion/audio/AUDIO_ID \
+  -H "Authorization: Bearer TOKEN" \
+  -o /tmp/companion.wav
+
 # 错 token → 401
 curl -s -o /dev/null -w "%{http_code}\n" http://HOST:17890/v1/snapshot
 ```
@@ -769,7 +876,32 @@ curl -s -o /dev/null -w "%{http_code}\n" http://HOST:17890/v1/snapshot
 
 ---
 
-## 12. 变更规则
+## 12. Mac Mini 节点（`helm-mini`）
+
+Windows Hub 继续报 Win 的 CPU / 内存 / GPU。Mac Mini 另开一个小服务，手机**单独填 Mini 地址**轮询，数字画在主屏 CPU 块的**第二行**。不经过 Hub。
+
+- 默认 `http://10.83.22.121:17891`，Token `helm-mini-weiekko`（安卓与 Mini 服务同一套默认值）
+- snapshot 需要 Bearer。`/health` 仍无鉴权
+- 实现见仓库 [`mini/`](../mini/README.md)，与 `dock_hub` 包分开
+
+| 方法 | 路径 | 鉴权 | 作用 |
+|---|---|---|---|
+| `GET` | `/health` | 否 | `service` 必须是 `helm-mini` |
+| `GET` | `/v1/snapshot` | Token 非空时要 | `{ "protocol": 1, "service": "helm-mini", "pc": { … } }` |
+
+`pc` 字段与 **5.3** 相同（`online` / `cpu` / `memory` / `gpu`）。Mini 没有 FPS、没有米家。GPU 名如 `M4`。安卓约 3 秒拉一次。
+
+```bash
+curl -s http://MINI:17891/health
+curl -s http://MINI:17891/v1/snapshot \
+  -H "Authorization: Bearer helm-mini-weiekko"
+```
+
+通过标准：health 的 `service` 为 `helm-mini`；snapshot 有 `pc.cpu.percent`、`pc.memory.percent`；读得到则有 `pc.gpu`。
+
+---
+
+## 13. 变更规则
 
 破坏性改动（删字段、改语义、改 URL）必须升到 `/v2`，并保留 `/v1` 直到安卓升级。
 

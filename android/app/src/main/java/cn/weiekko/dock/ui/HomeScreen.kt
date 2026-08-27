@@ -28,11 +28,13 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material.icons.outlined.Thermostat
 import androidx.compose.material3.Icon
@@ -56,16 +58,14 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -207,7 +207,9 @@ fun HomeScreen(
                                 .combinedClickable(
                                     indication = null,
                                     interactionSource = remember { MutableInteractionSource() },
-                                    onClick = { if (editing) onSelectModule(DockModule.Clock) },
+                                    onClick = {
+                                        if (editing) onSelectModule(DockModule.Clock)
+                                    },
                                     onLongClick = { onSelectModule(DockModule.Clock) },
                                 ),
                             contentAlignment = Alignment.Center,
@@ -275,6 +277,9 @@ fun HomeScreen(
                         PcMonitorRow(
                             pc = pc,
                             stale = state.stale || pc?.online != true,
+                            mini = if (state.miniConnection.isConfigured) state.miniPc else if (state.preview) DemoSnapshot.mini else null,
+                            miniStale = state.miniStale || (state.miniPc?.online != true && state.miniConnection.isConfigured),
+                            showMini = state.miniConnection.isConfigured || state.preview,
                             interactive = !editing,
                             onClick = onOpenSettings,
                             onLongPress = { onSelectModule(DockModule.Pc) },
@@ -435,6 +440,24 @@ fun HomeScreen(
                 }
             }
 
+            val captionText = when {
+                state.hubSleeping || state.voiceListening -> null
+                state.companionBusy -> "……"
+                !state.companionError.isNullOrBlank() -> state.companionError
+                !state.companionReply.isNullOrBlank() -> state.companionReply
+                else -> null
+            }
+            if (captionText != null) {
+                CompanionCaption(
+                    text = captionText,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth(0.42f)
+                        .padding(start = 20.dp, bottom = 18.dp)
+                        .zIndex(17f),
+                )
+            }
+
             if (state.hubSleeping && !state.voiceListening) {
                 Box(
                     modifier = Modifier
@@ -447,9 +470,11 @@ fun HomeScreen(
 
             if (state.voiceListening) {
                 WakeListeningChip(
+                    text = state.voiceText,
+                    settled = state.voiceSettled,
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 22.dp)
+                        .align(Alignment.BottomStart)
+                        .padding(start = 20.dp, bottom = 16.dp, end = 80.dp)
                         .zIndex(30f),
                 )
             }
@@ -747,31 +772,19 @@ private fun PcMonitorRow(
     onClick: () -> Unit,
     onLongPress: () -> Unit = {},
     interactive: Boolean = true,
+    mini: PcStatus? = null,
+    miniStale: Boolean = false,
+    showMini: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    data class Item(val label: String, val value: String, val sub: String? = null)
-    val items = buildList {
-        val cpu = pc?.cpu
-        add(Item("CPU", cpu?.percent?.let(::formatPercent) ?: "--", cpu?.tempCelsius?.let(::formatTemp)))
-        add(Item("MEM", pc?.memory?.percent?.let(::formatPercent) ?: "--"))
-        val gpu = pc?.gpu
-        add(
-            Item(
-                "GPU",
-                gpu?.percent?.let(::formatPercent) ?: "--",
-                gpu?.tempCelsius?.let(::formatTemp) ?: gpu?.name?.take(10),
-            ),
-        )
-        pc?.fps?.let { fps -> add(Item("FPS", fps.roundToInt().toString())) }
-    }
     val type = LocalTypeLook.current
     val family = type.font.toFamily()
     val size = type.statsSize
     val labelSize = (size * 0.72f).coerceAtLeast(10f)
-    val colW = (size * 5.4f + 12f).dp
+    val columns = pcStatColumns(pc, mini.takeIf { showMini }, includeFps = true)
     TilePanel(
         modifier = modifier
-            .alpha(if (stale) 0.78f else 1f)
+            .alpha(if (!showMini && stale) 0.78f else 1f)
             .combinedClickable(
                 enabled = interactive,
                 indication = null,
@@ -781,82 +794,139 @@ private fun PcMonitorRow(
                 onLongClick = onLongPress,
             ),
     ) {
-        ScaleToFit(Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                items.forEach { item ->
-                    Column(
-                        modifier = Modifier.width(colW),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(
-                            item.label,
-                            color = Color.White.copy(alpha = 0.78f),
-                            fontFamily = family,
-                            fontSize = labelSize.sp,
-                            fontWeight = FontWeight.Medium,
-                            letterSpacing = 1.1.sp,
-                            maxLines = 1,
-                            style = TextStyle(shadow = StatShadow),
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                item.value,
-                                color = Color.White,
-                                fontFamily = family,
-                                fontSize = size.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                style = TextStyle(shadow = StatShadow),
-                            )
-                            item.sub?.let { sub ->
-                                Text(
-                                    sub,
-                                    color = Color.White.copy(alpha = 0.88f),
-                                    fontFamily = family,
-                                    fontSize = size.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    style = TextStyle(shadow = StatShadow),
-                                )
-                            }
-                        }
-                    }
-                }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.SpaceEvenly,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            PcStatRow(
+                columns = columns.map { it.copy(value = it.top, sub = it.topSub) },
+                showLabels = true,
+                family = family,
+                size = size,
+                labelSize = labelSize,
+                dimmed = showMini && stale,
+            )
+            if (showMini) {
+                PcStatRow(
+                    columns = columns.map { it.copy(value = it.bottom, sub = it.bottomSub) },
+                    showLabels = false,
+                    family = family,
+                    size = size,
+                    labelSize = labelSize,
+                    dimmed = miniStale,
+                )
             }
         }
     }
 }
 
+private data class PcStatColumn(
+    val label: String,
+    val top: String,
+    val topSub: String? = null,
+    val bottom: String = "",
+    val bottomSub: String? = null,
+    val value: String = top,
+    val sub: String? = topSub,
+)
+
+private fun pcStatColumns(pc: PcStatus?, mini: PcStatus?, includeFps: Boolean): List<PcStatColumn> {
+    val cpu = pc?.cpu
+    val miniCpu = mini?.cpu
+    val gpu = pc?.gpu
+    val miniGpu = mini?.gpu
+    val columns = mutableListOf(
+        PcStatColumn(
+            label = "CPU",
+            top = cpu?.percent?.let(::formatPercent) ?: "--",
+            topSub = cpu?.tempCelsius?.let(::formatTemp),
+            bottom = miniCpu?.percent?.let(::formatPercent) ?: "--",
+            bottomSub = miniCpu?.tempCelsius?.let(::formatTemp),
+        ),
+        PcStatColumn(
+            label = "MEM",
+            top = pc?.memory?.percent?.let(::formatPercent) ?: "--",
+            bottom = mini?.memory?.percent?.let(::formatPercent) ?: "--",
+        ),
+        PcStatColumn(
+            label = "GPU",
+            top = gpu?.percent?.let(::formatPercent) ?: "--",
+            topSub = gpu?.tempCelsius?.let(::formatTemp) ?: gpu?.name?.take(10),
+            bottom = miniGpu?.percent?.let(::formatPercent) ?: "--",
+            bottomSub = miniGpu?.tempCelsius?.let(::formatTemp) ?: miniGpu?.name?.take(10),
+        ),
+    )
+    if (includeFps && pc?.fps != null) {
+        columns += PcStatColumn(
+            label = "FPS",
+            top = pc.fps.roundToInt().toString(),
+            bottom = "",
+        )
+    }
+    return columns
+}
+
 @Composable
-private fun ScaleToFit(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
+private fun PcStatRow(
+    columns: List<PcStatColumn>,
+    showLabels: Boolean,
+    family: FontFamily,
+    size: Int,
+    labelSize: Float,
+    dimmed: Boolean,
 ) {
-    Layout(content = content, modifier = modifier) { measurables, constraints ->
-        val child = measurables.firstOrNull() ?: return@Layout layout(0, 0) {}
-        val placeable = child.measure(Constraints())
-        val contentW = placeable.width.coerceAtLeast(1).toFloat()
-        val contentH = placeable.height.coerceAtLeast(1).toFloat()
-        val maxW = if (constraints.hasBoundedWidth) constraints.maxWidth.toFloat() else contentW
-        val maxH = if (constraints.hasBoundedHeight) constraints.maxHeight.toFloat() else contentH
-        val scale = min(maxW / contentW, maxH / contentH)
-        val outW = if (constraints.hasBoundedWidth) constraints.maxWidth else (contentW * scale).roundToInt()
-        val outH = if (constraints.hasBoundedHeight) constraints.maxHeight else (contentH * scale).roundToInt()
-        layout(outW, outH) {
-            placeable.placeWithLayer(
-                x = ((outW - placeable.width) / 2f).roundToInt(),
-                y = ((outH - placeable.height) / 2f).roundToInt(),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (dimmed) 0.72f else 1f),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        columns.forEach { item ->
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                scaleX = scale
-                scaleY = scale
-                transformOrigin = TransformOrigin.Center
+                if (showLabels) {
+                    Text(
+                        item.label,
+                        color = Color.White.copy(alpha = 0.78f),
+                        fontFamily = family,
+                        fontSize = labelSize.sp,
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = 1.1.sp,
+                        maxLines = 1,
+                        style = TextStyle(shadow = StatShadow),
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        item.value.ifBlank { " " },
+                        color = Color.White,
+                        fontFamily = family,
+                        fontSize = size.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        style = TextStyle(shadow = StatShadow),
+                    )
+                    item.sub?.let { sub ->
+                        Text(
+                            sub,
+                            color = Color.White.copy(alpha = 0.88f),
+                            fontFamily = family,
+                            fontSize = size.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            style = TextStyle(shadow = StatShadow),
+                        )
+                    }
+                }
             }
         }
     }
@@ -1214,11 +1284,18 @@ private fun WinTile(
 }
 
 @Composable
-private fun WakeListeningChip(modifier: Modifier = Modifier) {
+private fun WakeListeningChip(
+    text: String,
+    settled: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val colors = MaterialTheme.colorScheme
+    val type = LocalTypeLook.current
+    val family = type.font.toFamily()
+    val size = type.chipSize
     val infinite = rememberInfiniteTransition(label = "wake")
     val pulse = infinite.animateFloat(
-        initialValue = 0.35f,
+        initialValue = 0.45f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(700),
@@ -1226,37 +1303,52 @@ private fun WakeListeningChip(modifier: Modifier = Modifier) {
         ),
         label = "pulse",
     )
-    Surface(
-        modifier = modifier,
-        color = Color(0xE6181818),
-        shape = RoundedCornerShape(28.dp),
-        shadowElevation = 8.dp,
+    TilePanel(
+        modifier = modifier.widthIn(max = 280.dp),
+        highlighted = !settled,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                repeat(3) { i ->
-                    val h = 8.dp + (10.dp * ((pulse.value + i * 0.22f) % 1f))
-                    Box(
-                        modifier = Modifier
-                            .width(4.dp)
-                            .height(h)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(colors.primary.copy(alpha = 0.45f + pulse.value * 0.55f)),
-                    )
-                }
-            }
+            Icon(
+                Icons.Outlined.Mic,
+                contentDescription = null,
+                tint = colors.primary.copy(
+                    alpha = if (settled) 0.55f else 0.50f + pulse.value * 0.50f,
+                ),
+                modifier = Modifier.size(18.dp),
+            )
             Text(
-                "岸宝",
-                color = colors.onBackground,
+                text.ifBlank { if (settled) "没听清" else "在听" },
+                color = Color.White,
+                fontFamily = family,
+                fontSize = size.sp,
                 fontWeight = FontWeight.Medium,
-                fontSize = 16.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = TextStyle(shadow = StatShadow),
             )
         }
     }
+}
+
+@Composable
+private fun CompanionCaption(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text,
+        color = Color.White.copy(alpha = 0.92f),
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Medium,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        style = TextStyle(shadow = StatShadow),
+        modifier = modifier,
+    )
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 914, heightDp = 411)

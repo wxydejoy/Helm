@@ -1,5 +1,6 @@
 package cn.weiekko.dock.voice
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -17,5 +18,11 @@ class WakeKeywordsTest {
         assertTrue(WakeKeywords.STREAM.contains("@岸宝"))
         assertTrue(WakeKeywords.STREAM.contains("@嘿岸宝"))
         assertTrue(!WakeKeywords.STREAM.contains("\n"))
+    }
+
+    @Test
+    fun asrDisplayStripsBpeMarks() {
+        assertEquals("你好 岸宝", AsrModels.display("▁你好▁岸宝"))
+        assertEquals("把灯打开", AsrModels.display("  把灯打开  "))
     }
 }

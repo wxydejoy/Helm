@@ -33,12 +33,43 @@ data class HubConnection(
     }
 }
 
+data class MiniConnection(
+    val host: String = DEFAULT_HOST,
+    val port: Int = DEFAULT_PORT,
+    val token: String = DEFAULT_TOKEN,
+) {
+    val isConfigured: Boolean
+        get() = host.isNotBlank() && token.isNotBlank() && port in 1..65535
+
+    fun baseUrl(): String {
+        val cleaned = host.trim()
+            .removePrefix("http://")
+            .removePrefix("https://")
+            .trimEnd('/')
+        return "http://$cleaned:$port"
+    }
+
+    companion object {
+        const val DEFAULT_HOST = "10.83.22.121"
+        const val DEFAULT_PORT = 17891
+        const val DEFAULT_TOKEN = "helm-mini-weiekko"
+    }
+}
+
 class HubPreferences(private val context: Context) {
     val connection: Flow<HubConnection> = context.dataStore.data.map { prefs ->
         HubConnection(
             host = prefs[KEY_HOST].orEmpty(),
             port = prefs[KEY_PORT] ?: HubConnection.DEFAULT_PORT,
             token = prefs[KEY_TOKEN].orEmpty(),
+        )
+    }
+
+    val miniConnection: Flow<MiniConnection> = context.dataStore.data.map { prefs ->
+        MiniConnection(
+            host = prefs[KEY_MINI_HOST]?.takeIf { it.isNotBlank() } ?: MiniConnection.DEFAULT_HOST,
+            port = prefs[KEY_MINI_PORT] ?: MiniConnection.DEFAULT_PORT,
+            token = prefs[KEY_MINI_TOKEN]?.takeIf { it.isNotBlank() } ?: MiniConnection.DEFAULT_TOKEN,
         )
     }
 
@@ -101,6 +132,14 @@ class HubPreferences(private val context: Context) {
             prefs[KEY_HOST] = connection.host.trim()
             prefs[KEY_PORT] = connection.port
             prefs[KEY_TOKEN] = connection.token.trim()
+        }
+    }
+
+    suspend fun saveMini(connection: MiniConnection) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_MINI_HOST] = connection.host.trim()
+            prefs[KEY_MINI_PORT] = connection.port
+            prefs[KEY_MINI_TOKEN] = connection.token.trim()
         }
     }
 
@@ -182,6 +221,9 @@ class HubPreferences(private val context: Context) {
         private val KEY_HOST = stringPreferencesKey("host")
         private val KEY_PORT = intPreferencesKey("port")
         private val KEY_TOKEN = stringPreferencesKey("token")
+        private val KEY_MINI_HOST = stringPreferencesKey("mini_host")
+        private val KEY_MINI_PORT = intPreferencesKey("mini_port")
+        private val KEY_MINI_TOKEN = stringPreferencesKey("mini_token")
         private val KEY_VIDEO_URI = stringPreferencesKey("background_video_uri")
         private val KEY_TILE_STYLE = stringPreferencesKey("tile_style")
         private val KEY_TILE_OPACITY = intPreferencesKey("tile_opacity")

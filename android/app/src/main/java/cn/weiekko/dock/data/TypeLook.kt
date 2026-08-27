@@ -44,7 +44,7 @@ enum class DockFont {
 data class TypeLook(
     val font: DockFont = DockFont.System,
     val clockScalePercent: Int = 88,
-    val statsSize: Int = 15,
+    val statsSize: Int = 20,
     val tileSize: Int = 15,
     val chipSize: Int = 15,
 ) {
@@ -52,7 +52,7 @@ data class TypeLook(
         const val CLOCK_MIN = 60
         const val CLOCK_MAX = 140
         const val STATS_MIN = 11
-        const val STATS_MAX = 26
+        const val STATS_MAX = 32
         const val TILE_MIN = 11
         const val TILE_MAX = 22
         const val CHIP_MIN = 11

@@ -24,18 +24,30 @@ import cn.weiekko.dock.R
 import com.k2fsa.sherpa.onnx.KeywordSpotter
 import com.k2fsa.sherpa.onnx.KeywordSpotterConfig
 import com.k2fsa.sherpa.onnx.OnlineModelConfig
+import com.k2fsa.sherpa.onnx.OnlineRecognizer
+import com.k2fsa.sherpa.onnx.OnlineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OnlineStream
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
+import com.k2fsa.sherpa.onnx.OnlineZipformer2CtcModelConfig
 import com.k2fsa.sherpa.onnx.getFeatureConfig
 import kotlin.concurrent.thread
 
 class WakeWordService : Service() {
     @Volatile
     private var running = false
+    @Volatile
+    private var capturing = false
     private var recordThread: Thread? = null
     private var kws: KeywordSpotter? = null
-    private var stream: OnlineStream? = null
+    private var kwsStream: OnlineStream? = null
+    private var asr: OnlineRecognizer? = null
+    private var asrStream: OnlineStream? = null
     private var audioRecord: AudioRecord? = null
+    @Volatile
+    private var currentTurn = ""
+    private var turnAt = 0L
+    private var asrAt = 0L
+    private var loggedPartial = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -53,12 +65,17 @@ class WakeWordService : Service() {
 
     override fun onDestroy() {
         running = false
+        capturing = false
         recordThread?.join(400)
         releaseMic()
-        stream?.release()
-        stream = null
+        kwsStream?.release()
+        kwsStream = null
+        asrStream?.release()
+        asrStream = null
         kws?.release()
         kws = null
+        asr?.release()
+        asr = null
         super.onDestroy()
     }
 
@@ -74,14 +91,19 @@ class WakeWordService : Service() {
             try {
                 listen()
             } catch (e: Throwable) {
-                Log.e(TAG, "wake word loop failed", e)
+                Log.e(TAG, "voice loop failed", e)
             } finally {
                 running = false
+                capturing = false
                 releaseMic()
-                stream?.release()
-                stream = null
+                kwsStream?.release()
+                kwsStream = null
+                asrStream?.release()
+                asrStream = null
                 kws?.release()
                 kws = null
+                asr?.release()
+                asr = null
             }
         }
     }
@@ -110,8 +132,9 @@ class WakeWordService : Service() {
             ),
         )
         kws = spotter
-        val nextStream = spotter.createStream(WakeKeywords.STREAM)
-        stream = nextStream
+        val wakeStream = spotter.createStream(WakeKeywords.STREAM)
+        kwsStream = wakeStream
+        asr = runCatching { buildAsr() }.onFailure { Log.e(TAG, "asr init failed", it) }.getOrNull()
 
         val minBytes = AudioRecord.getMinBufferSize(
             SAMPLE_RATE,
@@ -139,35 +162,154 @@ class WakeWordService : Service() {
         audioRecord = recorder
         recorder.startRecording()
 
-        val chunk = (SAMPLE_RATE * 0.1).toInt()
+        val chunk = (SAMPLE_RATE * 0.05).toInt()
         val buffer = ShortArray(chunk)
         var lastDetectAt = 0L
+        var listenAt = 0L
+        var skipUntil = 0L
+        var lastEmitted = ""
+        var gate = UtteranceGate()
 
         while (running) {
             val n = recorder.read(buffer, 0, buffer.size)
             if (n <= 0) continue
             val samples = FloatArray(n) { buffer[it] / 32768.0f }
-            nextStream.acceptWaveform(samples, SAMPLE_RATE)
-            while (spotter.isReady(nextStream)) {
-                spotter.decode(nextStream)
-                val keyword = spotter.getResult(nextStream).keyword
-                if (keyword.isBlank()) continue
-                val now = SystemClock.elapsedRealtime()
-                if (now - lastDetectAt < COOLDOWN_MS) {
-                    spotter.reset(nextStream)
+            val now = SystemClock.elapsedRealtime()
+
+            if (capturing) {
+                val recognizer = asr
+                if (recognizer == null) {
+                    capturing = false
+                    emitTranscript("", settled = true)
                     continue
                 }
-                lastDetectAt = now
-                spotter.reset(nextStream)
-                onDetected(keyword)
+                var stream = asrStream
+                if (stream == null) {
+                    stream = recognizer.createStream()
+                    asrStream = stream
+                    skipUntil = now + CHIME_SKIP_MS
+                    listenAt = skipUntil
+                    lastEmitted = ""
+                    asrAt = 0L
+                    loggedPartial = false
+                    gate = UtteranceGate()
+                }
+                if (now < skipUntil) continue
+                if (asrAt == 0L) {
+                    asrAt = now
+                    HelmLatency.log(currentTurn, "asr_start", "since_wake_ms=${now - turnAt}")
+                }
+                stream.acceptWaveform(samples, SAMPLE_RATE)
+                while (recognizer.isReady(stream)) {
+                    recognizer.decode(stream)
+                }
+                val text = AsrModels.display(recognizer.getResult(stream).text)
+                if (text.isNotBlank() && text != lastEmitted) {
+                    lastEmitted = text
+                    gate.noteHeard()
+                    if (!loggedPartial) {
+                        loggedPartial = true
+                        HelmLatency.log(
+                            currentTurn,
+                            "asr_partial",
+                            "ms=${now - asrAt} chars=${text.length}",
+                        )
+                    }
+                    emitTranscript(text, settled = false)
+                }
+                val dtMs = n * 1000L / SAMPLE_RATE
+                val elapsed = (now - listenAt).coerceAtLeast(0L)
+                gate.onAudio(audioRms(samples), dtMs)
+                val reason = gate.shouldStop(elapsed)
+                if (reason != null) {
+                    Log.i(TAG, "asr stop ${reason.name} elapsed=${elapsed}ms heard=${gate.heard}")
+                    capturing = false
+                    asrStream = null
+                    val finalText = finishUtterance(recognizer, stream, lastEmitted)
+                    HelmLatency.log(
+                        currentTurn,
+                        "asr_end",
+                        "ms=$elapsed reason=${reason.name} chars=${finalText.length} heard=${if (gate.heard) 1 else 0}",
+                    )
+                    lastDetectAt = SystemClock.elapsedRealtime()
+                    spotter.reset(wakeStream)
+                }
+            } else {
+                wakeStream.acceptWaveform(samples, SAMPLE_RATE)
+                while (spotter.isReady(wakeStream)) {
+                    spotter.decode(wakeStream)
+                    val keyword = spotter.getResult(wakeStream).keyword
+                    if (keyword.isBlank()) continue
+                    if (now - lastDetectAt < COOLDOWN_MS) {
+                        spotter.reset(wakeStream)
+                        continue
+                    }
+                    lastDetectAt = now
+                    spotter.reset(wakeStream)
+                    onDetected(keyword)
+                }
             }
         }
     }
 
+    private fun finishUtterance(
+        recognizer: OnlineRecognizer,
+        stream: OnlineStream,
+        lastEmitted: String,
+    ): String {
+        stream.inputFinished()
+        while (recognizer.isReady(stream)) {
+            recognizer.decode(stream)
+        }
+        val text = AsrModels.display(recognizer.getResult(stream).text).ifBlank { lastEmitted }
+        emitTranscript(text, settled = true)
+        stream.release()
+        return text
+    }
+
+    private fun buildAsr(): OnlineRecognizer {
+        return OnlineRecognizer(
+            assetManager = assets,
+            config = OnlineRecognizerConfig(
+                featConfig = getFeatureConfig(SAMPLE_RATE, 80),
+                modelConfig = OnlineModelConfig(
+                    zipformer2Ctc = OnlineZipformer2CtcModelConfig(AsrModels.MODEL),
+                    tokens = AsrModels.TOKENS,
+                    numThreads = 2,
+                    debug = false,
+                    provider = "cpu",
+                ),
+                enableEndpoint = false,
+                decodingMethod = "greedy_search",
+            ),
+        )
+    }
+
     private fun onDetected(keyword: String) {
+        currentTurn = HelmLatency.newTurn()
+        turnAt = SystemClock.elapsedRealtime()
+        loggedPartial = false
+        asrAt = 0L
+        HelmLatency.log(currentTurn, "wake", "keyword=$keyword")
         Log.i(TAG, "wake word: $keyword")
         WakeChime.play()
-        startActivity(MainActivity.wakeWordIntent(this, keyword))
+        startActivity(MainActivity.wakeWordIntent(this, keyword, currentTurn))
+        capturing = asr != null
+        if (!capturing) {
+            Log.w(TAG, "asr unavailable, wake only")
+            HelmLatency.log(currentTurn, "asr_skip", "reason=unavailable")
+            emitTranscript("", settled = true)
+        }
+    }
+
+    private fun emitTranscript(text: String, settled: Boolean) {
+        sendBroadcast(
+            Intent(ACTION_TRANSCRIPT).setPackage(packageName).apply {
+                putExtra(EXTRA_TEXT, text)
+                putExtra(EXTRA_SETTLED, settled)
+                putExtra(EXTRA_TURN, currentTurn)
+            },
+        )
     }
 
     private fun releaseMic() {
@@ -228,7 +370,13 @@ class WakeWordService : Service() {
         private const val CHANNEL_ID = "wake_word"
         private const val NOTIFICATION_ID = 48
         private const val SAMPLE_RATE = 16_000
-        private const val COOLDOWN_MS = 1_200L
+        private const val COOLDOWN_MS = 1_000L
+        private const val CHIME_SKIP_MS = 500L
+
+        const val ACTION_TRANSCRIPT = "cn.weiekko.dock.VOICE_TRANSCRIPT"
+        const val EXTRA_TEXT = "text"
+        const val EXTRA_SETTLED = "settled"
+        const val EXTRA_TURN = "turn_id"
 
         fun start(context: Context) {
             val intent = Intent(context, WakeWordService::class.java)

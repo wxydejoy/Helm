@@ -102,7 +102,7 @@ fun defaultDockLayout(canvasW: Float, canvasH: Float, tileW: Float, tileH: Float
     val clockY = (canvasH - clockH) / 2f + lift
 
     val pcW = (canvasW * 0.40f).coerceAtMost(340f)
-    val pcH = (canvasH * 0.15f).coerceAtMost(58f)
+    val pcH = (canvasH * 0.26f).coerceAtMost(110f)
     val pcX = (canvasW - pcW) / 2f
     val pcY = 2f
 

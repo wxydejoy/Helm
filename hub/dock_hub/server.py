@@ -70,6 +70,11 @@ def make_handler(hub: DockHub) -> type[BaseHTTPRequestHandler]:
                     self._require_auth()
                     self._json(200, hub.snapshot())
                     return
+                if path.startswith("/v1/companion/audio/"):
+                    self._require_auth()
+                    audio_id = unquote(path[len("/v1/companion/audio/") :])
+                    self._bytes(200, hub.companion_audio(audio_id), "audio/wav")
+                    return
                 raise HubError("not_found", "未知接口")
             except HubError as exc:
                 self._json(exc.status, exc.body())
@@ -86,6 +91,11 @@ def make_handler(hub: DockHub) -> type[BaseHTTPRequestHandler]:
                     if setup_ui.handle_setup_post(hub, path, body, self):
                         return
                     raise HubError("not_found", "未知接口")
+                if path == "/v1/companion/chat":
+                    self._require_auth()
+                    body = self._read_json()
+                    self._json(200, hub.companion_chat(body))
+                    return
                 prefix = "/v1/devices/"
                 suffix = "/command"
                 if not (path.startswith(prefix) and path.endswith(suffix)):

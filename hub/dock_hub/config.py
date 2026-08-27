@@ -58,6 +58,19 @@ class DeviceConfig:
 
 
 @dataclass
+class CompanionConfig:
+    enabled: bool = False
+    llm_base_url: str = "http://127.0.0.1:11434"
+    llm_model: str = "qwen3.5:4b"
+    timeout_sec: float = 30.0
+    num_ctx: int = 4096
+    num_predict: int = 256
+    tts_base_url: str | None = None
+    tts_timeout_sec: float = 20.0
+    persona: str | None = None
+
+
+@dataclass
 class HubConfig:
     name: str
     token: str
@@ -66,6 +79,7 @@ class HubConfig:
     temperature: TemperatureConfig | None = None
     pc: PcConfig | None = None
     devices: list[DeviceConfig] = field(default_factory=list)
+    companion: CompanionConfig | None = None
     path: Path | None = None
 
     def device(self, device_id: str) -> DeviceConfig:
@@ -142,6 +156,7 @@ def parse_config(raw: dict[str, Any], path: Path | None = None) -> HubConfig:
     if raw.get("temperature"):
         temperature = _parse_temperature(raw["temperature"])
     pc = _parse_pc(raw.get("pc"))
+    companion = _parse_companion(raw.get("companion"))
 
     devices: list[DeviceConfig] = []
     seen: set[str] = set()
@@ -160,6 +175,7 @@ def parse_config(raw: dict[str, Any], path: Path | None = None) -> HubConfig:
         temperature=temperature,
         pc=pc,
         devices=devices,
+        companion=companion,
         path=path,
     )
 
@@ -242,6 +258,31 @@ def _parse_pc(raw: Any) -> PcConfig | None:
         sample_ms=int(raw.get("sample_ms") or 1000),
         cpu_temp=bool(raw.get("cpu_temp", True)),
         gpu=bool(raw.get("gpu", True)),
+    )
+
+
+def _parse_companion(raw: Any) -> CompanionConfig | None:
+    if raw is None or raw is False:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("companion 必须是对象，或删掉整段以关闭")
+    enabled = raw.get("enabled", True)
+    if enabled is False:
+        return CompanionConfig(enabled=False)
+    llm = raw.get("llm") if isinstance(raw.get("llm"), dict) else {}
+    tts = raw.get("tts") if isinstance(raw.get("tts"), dict) else {}
+    persona = str(raw["persona"]).strip() if raw.get("persona") else None
+    tts_url = str(tts.get("base_url") or "").strip() or None
+    return CompanionConfig(
+        enabled=True,
+        llm_base_url=str(llm.get("base_url") or "http://127.0.0.1:11434").strip(),
+        llm_model=str(llm.get("model") or "qwen3.5:4b").strip(),
+        timeout_sec=float(llm.get("timeout_sec") or 30),
+        num_ctx=int(llm.get("num_ctx") or 4096),
+        num_predict=int(llm.get("num_predict") or 256),
+        tts_base_url=tts_url,
+        tts_timeout_sec=float(tts.get("timeout_sec") or 20),
+        persona=persona or None,
     )
 
 
@@ -354,6 +395,27 @@ def hub_config_to_raw(config: HubConfig) -> dict[str, Any]:
             "cpu_temp": config.pc.cpu_temp,
             "gpu": config.pc.gpu,
         }
+    if config.companion is not None:
+        companion: dict[str, Any] = {"enabled": config.companion.enabled}
+        if config.companion.enabled:
+            llm: dict[str, Any] = {
+                "base_url": config.companion.llm_base_url,
+                "model": config.companion.llm_model,
+                "timeout_sec": config.companion.timeout_sec,
+            }
+            if config.companion.num_ctx != 4096:
+                llm["num_ctx"] = config.companion.num_ctx
+            if config.companion.num_predict != 256:
+                llm["num_predict"] = config.companion.num_predict
+            companion["llm"] = llm
+            if config.companion.tts_base_url:
+                tts: dict[str, Any] = {"base_url": config.companion.tts_base_url}
+                if config.companion.tts_timeout_sec != 20.0:
+                    tts["timeout_sec"] = config.companion.tts_timeout_sec
+                companion["tts"] = tts
+            if config.companion.persona:
+                companion["persona"] = config.companion.persona
+        raw["companion"] = companion
     return raw
 
 

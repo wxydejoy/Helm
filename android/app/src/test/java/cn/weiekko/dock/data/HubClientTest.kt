@@ -76,6 +76,7 @@ class HubClientTest {
                     "app": "Music",
                     "updated_at": "2026-08-15T15:30:01Z"
                   },
+                  "companion": {"ready": true, "voice": false, "speaking": false},
                   "devices": [
                     {"id":"lamp","name":"台灯","type":"light","online":true,"on":true,"brightness":60},
                     {"id":"plug","name":"显示器","type":"switch","online":true,"on":false}
@@ -91,6 +92,7 @@ class HubClientTest {
         assertEquals(144.0, snapshot.pc!!.fps!!, 0.01)
         assertEquals("Night Drive", snapshot.media!!.title)
         assertTrue(snapshot.media!!.playing)
+        assertTrue(snapshot.companion!!.ready)
         assertEquals(2, snapshot.devices.size)
         assertEquals(60, snapshot.devices[0].brightness)
         assertNull(snapshot.devices[1].brightness)
@@ -130,6 +132,64 @@ class HubClientTest {
     }
 
     @Test
+    fun companionChatSendsText() {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"text":"晚上好，漂泊者。","audio_id":null}""",
+            ),
+        )
+        val reply = client.companionChat(connection, "晚上好。")
+        assertEquals("晚上好，漂泊者。", reply.text)
+        assertNull(reply.audioId)
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertTrue(request.path!!.endsWith("/v1/companion/chat"))
+        val raw = request.body.readUtf8()
+        assertTrue(raw.contains("晚上好。"))
+        assertTrue(!raw.contains("turn_id"))
+    }
+
+    @Test
+    fun companionChatSendsTurnId() {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"text":"晚上好，漂泊者。","audio_id":"abc123def456"}""",
+            ),
+        )
+        val reply = client.companionChat(connection, "晚上好。", "abc123def456")
+        assertEquals("abc123def456", reply.audioId)
+        val raw = server.takeRequest().body.readUtf8()
+        assertTrue(raw.contains("\"turn_id\":\"abc123def456\""))
+    }
+
+    @Test
+    fun companionAudioDownloadsWav() {
+        val wav = byteArrayOf('R'.code.toByte(), 'I'.code.toByte(), 'F'.code.toByte(), 'F'.code.toByte())
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "audio/wav")
+                .setBody(okio.Buffer().write(wav)),
+        )
+        val bytes = client.companionAudio(connection, "turn-1")
+        assertEquals(4, bytes.size)
+        val request = server.takeRequest()
+        assertEquals("GET", request.method)
+        assertTrue(request.path!!.endsWith("/v1/companion/audio/turn-1"))
+        assertEquals("Bearer secret", request.getHeader("Authorization"))
+    }
+
+    @Test
+    fun companionAudioRejectsBadId() {
+        try {
+            client.companionAudio(connection, "../x")
+            throw AssertionError("expected HubException")
+        } catch (e: HubException) {
+            assertEquals("bad_request", e.code)
+        }
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
     fun unauthorizedBecomesHubException() = runBlocking {
         server.enqueue(
             MockResponse()
@@ -143,5 +203,47 @@ class HubClientTest {
             assertTrue(e.isUnauthorized)
             assertEquals("Token 不正确", e.message)
         }
+    }
+
+    @Test
+    fun miniHealthAcceptsHelmMini() {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"ok":true,"service":"helm-mini","protocol":1,"name":"mini"}""",
+            ),
+        )
+        val mini = MiniConnection(host = server.hostName, port = server.port, token = MiniConnection.DEFAULT_TOKEN)
+        val health = client.miniHealth(mini)
+        assertEquals("mini", health.name)
+        assertEquals(0, server.takeRequest().headers["Authorization"]?.length ?: 0)
+    }
+
+    @Test
+    fun miniSnapshotSendsBearerToken() {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "protocol": 1,
+                  "service": "helm-mini",
+                  "pc": {
+                    "online": true,
+                    "updated_at": "2026-08-26T14:00:00Z",
+                    "cpu": {"percent": 18.2},
+                    "memory": {"percent": 41.0, "used_gb": 6.6, "total_gb": 16.0},
+                    "gpu": {"name": "M4", "percent": 8.0}
+                  }
+                }
+                """.trimIndent(),
+            ),
+        )
+        val mini = MiniConnection(host = server.hostName, port = server.port)
+        val pc = client.miniSnapshot(mini)
+        assertEquals(18.2, pc.cpu!!.percent, 0.01)
+        assertEquals(8.0, pc.gpu!!.percent!!, 0.01)
+        assertEquals("M4", pc.gpu!!.name)
+        val request = server.takeRequest()
+        assertEquals("Bearer ${MiniConnection.DEFAULT_TOKEN}", request.getHeader("Authorization"))
+        assertTrue(request.path!!.endsWith("/v1/snapshot"))
     }
 }
